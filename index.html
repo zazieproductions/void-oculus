@@ -1,0 +1,3087 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOID//OCULUS — The Canvas Is An Eye</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Space+Grotesk:wght@300..700&family=Orbitron:wght@400..900&display=swap');
+
+  :root {
+    --bg: #0a0a0b;
+    --surface: #111113;
+    --surface2: #161618;
+    --surface3: #1c1c1f;
+    --border: #2a2a2e;
+    --border-glow: #3a3a40;
+    --phosphor: #00ff9d;
+    --phosphor-dim: #00cc7a;
+    --phosphor-faint: #00ff9d22;
+    --crimson: #cc2233;
+    --crimson-bright: #ff2244;
+    --crimson-faint: #cc223322;
+    --violet: #7b4fff;
+    --violet-bright: #9966ff;
+    --violet-faint: #7b4fff22;
+    --amber: #ffaa00;
+    --amber-faint: #ffaa0022;
+    --cyan: #00ccff;
+    --cyan-faint: #00ccff22;
+    --text-primary: #e8e8ec;
+    --text-secondary: #888890;
+    --text-dim: #555558;
+    --mono: 'JetBrains Mono', monospace;
+    --display: 'Orbitron', monospace;
+    --body: 'Space Grotesk', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--mono);
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+    cursor: crosshair;
+  }
+
+  /* CANVAS CONTAINER */
+  #canvas-wrapper {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  #particles-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  #canvas {
+    position: absolute;
+    width: 8000px;
+    height: 6000px;
+    transform-origin: 0 0;
+    z-index: 1;
+  }
+
+  /* Grid background */
+  #canvas::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,255,157,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,255,157,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    z-index: 0;
+  }
+
+  #connector-svg {
+    position: absolute;
+    top: 0; left: 0;
+    width: 8000px;
+    height: 6000px;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  /* TOOLBAR */
+  #toolbar {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(16,16,18,0.95);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px 14px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 0 40px rgba(0,255,157,0.08), 0 8px 32px rgba(0,0,0,0.6);
+  }
+
+  #toolbar .logo {
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--phosphor);
+    letter-spacing: 3px;
+    text-shadow: 0 0 20px var(--phosphor);
+    margin-right: 10px;
+  }
+
+  .tool-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .tool-btn:hover, .tool-btn.active {
+    background: var(--phosphor-faint);
+    border-color: var(--phosphor-dim);
+    color: var(--phosphor);
+    box-shadow: 0 0 12px var(--phosphor-faint);
+  }
+
+  .tool-sep {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    margin: 0 4px;
+  }
+
+  /* MINIMAP */
+  #minimap {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 160px;
+    height: 100px;
+    background: rgba(10,10,11,0.9);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    z-index: 1000;
+    overflow: hidden;
+    cursor: pointer;
+    box-shadow: 0 0 20px rgba(0,255,157,0.06);
+  }
+
+  #minimap-viewport {
+    position: absolute;
+    border: 1px solid var(--phosphor);
+    background: rgba(0,255,157,0.05);
+    border-radius: 2px;
+    pointer-events: none;
+    box-shadow: 0 0 8px var(--phosphor-faint);
+  }
+
+  /* STATUS BAR */
+  #status-bar {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    z-index: 1000;
+    display: flex;
+    gap: 16px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+  }
+
+  .status-item span { color: var(--phosphor); }
+
+  /* BASE CARD */
+  .card {
+    position: absolute;
+    z-index: 10;
+    cursor: grab;
+    user-select: none;
+    transition: box-shadow 0.2s, transform 0.1s;
+  }
+
+  .card:hover { z-index: 100; }
+  .card.dragging { cursor: grabbing; z-index: 999; transform: rotate(1deg) scale(1.02); }
+
+  .card-inner {
+    border-radius: 8px;
+    overflow: hidden;
+    transition: box-shadow 0.2s;
+  }
+
+  /* STICKY NOTE */
+  .sticky {
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.7;
+    padding: 16px;
+    border-radius: 8px;
+    min-width: 200px;
+    min-height: 120px;
+    border-top: 3px solid;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .sticky::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.02), transparent);
+    pointer-events: none;
+  }
+
+  .sticky .sticky-label {
+    font-size: 8px;
+    letter-spacing: 2px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    opacity: 0.7;
+    text-transform: uppercase;
+  }
+
+  .sticky-green { background: #0d1f18; border-color: var(--phosphor); color: #aaffdd; }
+  .sticky-green .sticky-label { color: var(--phosphor); }
+  .sticky-red { background: #1f0d10; border-color: var(--crimson); color: #ffaab0; }
+  .sticky-red .sticky-label { color: var(--crimson-bright); }
+  .sticky-violet { background: #130f2a; border-color: var(--violet); color: #ccbbff; }
+  .sticky-violet .sticky-label { color: var(--violet-bright); }
+  .sticky-amber { background: #1f1500; border-color: var(--amber); color: #ffd97a; }
+  .sticky-amber .sticky-label { color: var(--amber); }
+  .sticky-cyan { background: #001820; border-color: var(--cyan); color: #aaeeff; }
+  .sticky-cyan .sticky-label { color: var(--cyan); }
+
+  /* CODE BLOCK */
+  .code-block {
+    background: #0c0c0e;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.8;
+    overflow: hidden;
+    min-width: 280px;
+    box-shadow: 0 0 30px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+
+  .code-header {
+    background: #131315;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .code-dots { display: flex; gap: 5px; }
+  .code-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .code-dot:nth-child(1) { background: #cc3333; }
+  .code-dot:nth-child(2) { background: #ccaa00; }
+  .code-dot:nth-child(3) { background: #33aa44; }
+
+  .code-title {
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    margin-left: 4px;
+  }
+
+  .code-body {
+    padding: 14px;
+    color: #aaccaa;
+  }
+
+  .code-body .kw { color: var(--violet-bright); }
+  .code-body .fn { color: var(--phosphor); }
+  .code-body .str { color: var(--amber); }
+  .code-body .cm { color: var(--text-dim); font-style: italic; }
+  .code-body .num { color: var(--cyan); }
+  .code-body .var { color: #ffaacc; }
+
+  /* IMAGE CARD */
+  .img-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+
+  .img-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .img-caption {
+    padding: 8px 12px;
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    border-top: 1px solid var(--border);
+    background: var(--surface2);
+  }
+
+  /* SECTION HEADER */
+  .section-header {
+    font-family: var(--display);
+    font-size: 10px;
+    letter-spacing: 4px;
+    padding: 10px 16px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    font-weight: 700;
+    display: inline-block;
+    position: relative;
+  }
+
+  .section-header::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 1px;
+  }
+
+  /* MINDMAP NODE */
+  .mindmap-node {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 8px 16px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1px;
+    cursor: grab;
+    white-space: nowrap;
+    transition: all 0.2s;
+  }
+
+  .mindmap-node:hover {
+    background: var(--surface3);
+    border-color: var(--border-glow);
+  }
+
+  .mindmap-central {
+    border-radius: 8px;
+    padding: 12px 20px;
+    font-weight: 700;
+    font-size: 12px;
+  }
+
+  /* DEFINITION CARD */
+  .def-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    min-width: 220px;
+    font-family: var(--mono);
+  }
+
+  .def-term {
+    font-family: var(--display);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+  }
+
+  .def-type {
+    font-size: 8px;
+    letter-spacing: 3px;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+  }
+
+  .def-text {
+    font-size: 10px;
+    line-height: 1.8;
+    color: var(--text-secondary);
+  }
+
+  /* HEX TAG */
+  .hex-tag {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: grab;
+  }
+
+  .hex-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    display: inline-block;
+  }
+
+  /* PROGRESS BAR */
+  .progress-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    min-width: 200px;
+    font-family: var(--mono);
+  }
+
+  .progress-label {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+
+  .progress-bar {
+    height: 3px;
+    background: var(--surface3);
+    border-radius: 2px;
+    margin-bottom: 6px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .progress-fill::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  /* WAVEFORM */
+  .waveform-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    overflow: hidden;
+  }
+
+  /* CHART */
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    overflow: hidden;
+  }
+
+  /* CONNECTOR SVG styles */
+  .connector-line {
+    fill: none;
+    stroke-width: 1.5;
+    opacity: 0.5;
+  }
+
+  .connector-glow {
+    fill: none;
+    stroke-width: 3;
+    opacity: 0.15;
+    filter: blur(2px);
+  }
+
+  /* ZOOM CONTROLS */
+  #zoom-controls {
+    position: fixed;
+    top: 50%;
+    right: 20px;
+    transform: translateY(-50%);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .zoom-btn {
+    width: 32px;
+    height: 32px;
+    background: rgba(16,16,18,0.9);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    font-family: var(--mono);
+  }
+
+  .zoom-btn:hover {
+    border-color: var(--phosphor-dim);
+    color: var(--phosphor);
+    background: var(--phosphor-faint);
+  }
+
+  /* GLOWING ORBS */
+  .glow-orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.12;
+  }
+
+  /* TOOLTIP */
+  #tooltip {
+    position: fixed;
+    background: rgba(10,10,11,0.95);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--phosphor);
+    pointer-events: none;
+    z-index: 2000;
+    display: none;
+    box-shadow: 0 0 20px var(--phosphor-faint);
+  }
+
+  /* CONTEXT MENU */
+  #context-menu {
+    position: fixed;
+    background: rgba(13,13,15,0.98);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px;
+    z-index: 2000;
+    display: none;
+    min-width: 160px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.8), 0 0 20px rgba(0,255,157,0.04);
+    backdrop-filter: blur(20px);
+  }
+
+  .ctx-item {
+    padding: 7px 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 4px;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.15s;
+  }
+
+  .ctx-item:hover {
+    background: var(--surface2);
+    color: var(--phosphor);
+  }
+
+  .ctx-sep {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
+  }
+
+  /* Floating label zones */
+  .zone-label {
+    position: absolute;
+    font-family: var(--display);
+    font-size: 9px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    opacity: 0.15;
+    pointer-events: none;
+    z-index: 1;
+    font-weight: 700;
+  }
+
+  /* SEARCH */
+  #search-bar {
+    position: fixed;
+    top: 20px;
+    right: 70px;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    background: rgba(16,16,18,0.9);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 12px;
+    gap: 8px;
+    backdrop-filter: blur(20px);
+  }
+
+  #search-bar input {
+    background: transparent;
+    border: none;
+    outline: none;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-primary);
+    letter-spacing: 1px;
+    width: 160px;
+  }
+
+  #search-bar input::placeholder { color: var(--text-dim); }
+  #search-bar .search-icon { color: var(--text-dim); font-size: 11px; }
+
+  /* NOTIFICATION */
+  .notif {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(13,13,15,0.95);
+    border: 1px solid var(--phosphor-dim);
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--phosphor);
+    z-index: 3000;
+    letter-spacing: 1px;
+    box-shadow: 0 0 20px var(--phosphor-faint);
+    animation: notif-fade 3s forwards;
+  }
+
+  @keyframes notif-fade {
+    0% { opacity: 0; transform: translateX(-50%) translateY(10px); }
+    15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    80% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  /* SELECTION BOX */
+  #selection-box {
+    position: absolute;
+    border: 1px solid var(--phosphor);
+    background: var(--phosphor-faint);
+    pointer-events: none;
+    z-index: 500;
+    display: none;
+    border-radius: 2px;
+  }
+
+  /* PULSE ANIMATIONS */
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 20px rgba(0,255,157,0.1); }
+    50% { box-shadow: 0 0 40px rgba(0,255,157,0.25); }
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-4px); }
+  }
+
+  @keyframes scan-line {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(100vh); }
+  }
+
+  /* SCAN LINE EFFECT */
+  .scan-line {
+    position: fixed;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(transparent, rgba(0,255,157,0.04), transparent);
+    z-index: 9999;
+    pointer-events: none;
+    animation: scan-line 8s linear infinite;
+  }
+
+  /* TAG CLOUD */
+  .tag-cluster {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    max-width: 280px;
+  }
+
+  .tag {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 8px;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    cursor: default;
+    transition: all 0.15s;
+  }
+
+  .tag:hover { border-color: var(--phosphor-dim); color: var(--phosphor); }
+
+  /* TIMELINE */
+  .timeline-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    min-width: 240px;
+  }
+
+  .timeline-item {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+    align-items: flex-start;
+    font-size: 10px;
+  }
+
+  .timeline-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-top: 2px;
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .timeline-dot::after {
+    content: '';
+    position: absolute;
+    top: 8px;
+    left: 3.5px;
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+  }
+
+  .timeline-item:last-child .timeline-dot::after { display: none; }
+
+  .timeline-time { color: var(--text-dim); font-size: 8px; letter-spacing: 1px; }
+
+  /* SCROLLING TEXT */
+  @keyframes marquee {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+
+  .marquee-container {
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 0;
+    white-space: nowrap;
+  }
+
+  .marquee-inner {
+    display: inline-block;
+    animation: marquee 20s linear infinite;
+    font-size: 8px;
+    letter-spacing: 3px;
+    color: var(--text-dim);
+  }
+
+  .selected-card {
+    box-shadow: 0 0 0 2px var(--phosphor) !important;
+  }
+
+  /* ============================================================
+     OCULUS LAYER
+     ============================================================ */
+  :root {
+    --sclera: #07070a;
+    --vein: #6b1220;
+  }
+
+  /* macro iris — the board sits inside a giant eye */
+  .macro-iris {
+    position: absolute;
+    z-index: 0;
+    pointer-events: none;
+    mix-blend-mode: screen;
+    opacity: 0.35;
+    transition: opacity 0.5s ease;
+    animation: irisBreathe 14s ease-in-out infinite;
+  }
+  @keyframes irisBreathe {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.008); }
+  }
+
+  /* ambient watchers floating in the void */
+  .bg-eye {
+    position: absolute;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0.18;
+    filter: blur(0.4px);
+  }
+  .bg-eye.deep { opacity: 0.08; filter: blur(1.6px); }
+  .bg-eye.near { opacity: 0.3; filter: none; }
+
+  /* eye svg internals */
+  .eye-svg { display: block; overflow: visible; }
+  .eye-svg .eye-globe,
+  .eye-svg .pupil-grp {
+    transition: transform 0.14s cubic-bezier(.2,.9,.3,1);
+    will-change: transform;
+  }
+  .eye-svg .lid-t, .eye-svg .lid-b {
+    transform: translateY(0);
+    transition: transform 0.07s ease-in;
+  }
+  .eye-svg.blink .lid-t { transform: translateY(var(--lid)); }
+  .eye-svg.blink .lid-b { transform: translateY(calc(var(--lid) * -1)); }
+  .eye-svg .fibers { transform-origin: center; animation: fiberDrift 60s linear infinite; }
+  @keyframes fiberDrift { to { transform: rotate(360deg); } }
+  .eye-svg .pupil-core { animation: pupilPulse 5.5s ease-in-out infinite; transform-origin: center; }
+  @keyframes pupilPulse { 0%,100% { r: var(--pr); } 50% { r: calc(var(--pr) * 1.16); } }
+
+  .eye-well {
+    background: radial-gradient(circle at 50% 50%, #101018 0%, #050507 70%) !important;
+    position: relative;
+  }
+  .eye-card { border-color: #2a2a2e; }
+  .eye-card:hover { box-shadow: 0 0 26px rgba(123,79,255,0.25); }
+
+  /* iris scan sweep */
+  .scan-sweep {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--phosphor), transparent);
+    box-shadow: 0 0 12px var(--phosphor);
+    animation: sweepY 3.4s ease-in-out infinite;
+    pointer-events: none;
+    opacity: 0.8;
+  }
+  @keyframes sweepY { 0%,100% { top: 6%; } 50% { top: 92%; } }
+
+  /* THE WATCHER */
+  .watcher-card {
+    background: var(--surface);
+    border: 1px solid var(--violet);
+    border-radius: 10px;
+    padding: 16px;
+    box-shadow: 0 0 60px rgba(123,79,255,0.18), inset 0 0 60px rgba(0,0,0,0.6);
+  }
+  .watcher-title {
+    font-family: var(--display);
+    font-size: 10px;
+    letter-spacing: 5px;
+    color: var(--violet-bright);
+    text-shadow: 0 0 18px var(--violet);
+    margin-bottom: 10px;
+  }
+  .watcher-meta {
+    display: flex; justify-content: space-between;
+    font-size: 8px; letter-spacing: 2px; color: var(--text-dim);
+    margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px;
+  }
+
+  /* eyelid vignette — the canvas squints as you pull back */
+  .lid-shade {
+    position: fixed;
+    left: 0; right: 0;
+    height: 0vh;
+    z-index: 900;
+    pointer-events: none;
+    transition: height 0.35s cubic-bezier(.2,.8,.3,1);
+  }
+  #lid-top {
+    top: 0;
+    background: linear-gradient(180deg, #000 0%, #000 55%, rgba(0,0,0,0.85) 78%, rgba(0,0,0,0) 100%);
+    box-shadow: 0 6px 40px 6px rgba(0,0,0,0.9);
+  }
+  #lid-bottom {
+    bottom: 0;
+    background: linear-gradient(0deg, #000 0%, #000 55%, rgba(0,0,0,0.85) 78%, rgba(0,0,0,0) 100%);
+    box-shadow: 0 -6px 40px 6px rgba(0,0,0,0.9);
+  }
+  .lash {
+    position: absolute; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(123,79,255,0.35) 20%, rgba(0,255,157,0.25) 50%, rgba(204,34,51,0.35) 80%, transparent);
+  }
+  #lid-top .lash { bottom: 0; }
+  #lid-bottom .lash { top: 0; }
+
+  /* permanent ocular vignette */
+  #ocular-vignette {
+    position: fixed; inset: 0; z-index: 890; pointer-events: none;
+    background: radial-gradient(ellipse 62% 58% at 50% 50%, transparent 40%, rgba(0,0,0,0.5) 78%, rgba(0,0,0,0.92) 100%);
+  }
+
+  /* cursor eye */
+  #gaze-cursor {
+    position: fixed; top: 0; left: 0;
+    width: 34px; height: 34px;
+    margin: -17px 0 0 -17px;
+    z-index: 1200;
+    pointer-events: none;
+    mix-blend-mode: screen;
+    opacity: 0.85;
+  }
+  #gaze-cursor.hide { opacity: 0; }
+
+  /* boot: iris opening */
+  #boot-oculus {
+    position: fixed; inset: 0; z-index: 4000;
+    background: #000;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 22px;
+    transition: opacity 0.9s ease 0.2s;
+  }
+  #boot-oculus.gone { opacity: 0; pointer-events: none; }
+  #boot-oculus .boot-eye { animation: bootOpen 1.9s cubic-bezier(.16,.9,.2,1) forwards; }
+  @keyframes bootOpen {
+    0%   { transform: scaleY(0.02) scale(0.7); filter: blur(6px); opacity: 0; }
+    35%  { transform: scaleY(0.06) scale(0.85); opacity: 1; }
+    100% { transform: scaleY(1) scale(1); filter: blur(0); opacity: 1; }
+  }
+  #boot-oculus .boot-text {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 6px;
+    color: var(--phosphor);
+    text-shadow: 0 0 20px var(--phosphor);
+    animation: bootFlicker 2.4s steps(1) infinite;
+  }
+  @keyframes bootFlicker { 0%,92%,100% { opacity: 1; } 94% { opacity: 0.25; } 96% { opacity: 0.9; } }
+  #boot-oculus .boot-sub {
+    font-family: var(--mono); font-size: 8px; letter-spacing: 3px; color: var(--text-dim);
+  }
+
+  /* minimap becomes a fovea map */
+  #minimap-eye {
+    position: absolute; inset: 0; pointer-events: none; z-index: 3;
+  }
+  #minimap-label {
+    position: absolute; bottom: 3px; left: 6px;
+    font-family: var(--mono); font-size: 7px; letter-spacing: 2px;
+    color: var(--text-dim); z-index: 4; pointer-events: none;
+  }
+
+  /* eye glyph in toolbar */
+  .logo-eye { display: inline-block; animation: logoBlink 6.2s infinite; transform-origin: center; }
+  @keyframes logoBlink {
+    0%, 94%, 100% { transform: scaleY(1); }
+    96% { transform: scaleY(0.08); }
+    98% { transform: scaleY(1); }
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    #toolbar { padding: 6px 10px; gap: 4px; }
+    .tool-btn span { display: none; }
+    #search-bar { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="scan-line"></div>
+
+<!-- OCULUS OVERLAYS -->
+<div id="ocular-vignette"></div>
+<div class="lid-shade" id="lid-top"><div class="lash"></div></div>
+<div class="lid-shade" id="lid-bottom"><div class="lash"></div></div>
+<div id="gaze-cursor"></div>
+<div id="boot-oculus">
+  <div class="boot-eye" id="boot-eye"></div>
+  <div class="boot-text">OCULUS ONLINE</div>
+  <div class="boot-sub">// 1 CANVAS · 7 ZONES · N EYES · ALL OPEN</div>
+</div>
+<canvas id="particles-bg"></canvas>
+
+<!-- TOOLBAR -->
+<div id="toolbar">
+  <div class="logo"><span class="logo-eye">◉</span></div>
+  <div class="tool-sep"></div>
+  <button class="tool-btn active" id="tool-select" onclick="setTool('select')">⊹ <span>SELECT</span></button>
+  <button class="tool-btn" id="tool-pan" onclick="setTool('pan')">✦ <span>PAN</span></button>
+  <button class="tool-btn" id="tool-connect" onclick="setTool('connect')">⊸ <span>LINK</span></button>
+  <div class="tool-sep"></div>
+  <button class="tool-btn" onclick="addStickyNote()">+ <span>NOTE</span></button>
+  <button class="tool-btn" onclick="addCodeBlock()">{ <span>CODE</span></button>
+  <button class="tool-btn" onclick="addDefCard()">⌖ <span>DEF</span></button>
+  <button class="tool-btn" onclick="addEyeCard()" style="color:var(--violet-bright)">◉ <span>EYE</span></button>
+  <div class="tool-sep"></div>
+  <button class="tool-btn" onclick="resetView()">⊡ <span>FIT</span></button>
+  <button class="tool-btn" onclick="clearSelected()">✕ <span>DESELECT</span></button>
+</div>
+
+<!-- SEARCH -->
+<div id="search-bar">
+  <span class="search-icon">⌕</span>
+  <input type="text" placeholder="search canvas..." id="search-input">
+</div>
+
+<!-- ZOOM CONTROLS -->
+<div id="zoom-controls">
+  <button class="zoom-btn" onclick="zoom(1.2)">+</button>
+  <button class="zoom-btn" onclick="zoom(0.8)">−</button>
+  <button class="zoom-btn" onclick="resetView()" style="font-size:9px;">⊡</button>
+</div>
+
+<!-- STATUS BAR -->
+<div id="status-bar">
+  <div class="status-item">X: <span id="stat-x">0</span></div>
+  <div class="status-item">Y: <span id="stat-y">0</span></div>
+  <div class="status-item">ZOOM: <span id="stat-zoom">100</span>%</div>
+  <div class="status-item">CARDS: <span id="stat-cards">0</span></div>
+  <div class="status-item">LINKS: <span id="stat-links">0</span></div>
+  <div class="status-item">EYES: <span id="stat-eyes">0</span></div>
+  <div class="status-item">DILATION: <span id="stat-dil">0</span>%</div>
+</div>
+
+<!-- MINIMAP -->
+<div id="minimap">
+  <canvas id="minimap-canvas" width="160" height="100"></canvas>
+  <div id="minimap-viewport"></div>
+</div>
+
+<!-- TOOLTIP -->
+<div id="tooltip"></div>
+
+<!-- CONTEXT MENU -->
+<div id="context-menu">
+  <div class="ctx-item" onclick="ctxAction('front')">⬆ Bring to Front</div>
+  <div class="ctx-item" onclick="ctxAction('back')">⬇ Send to Back</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" onclick="ctxAction('duplicate')">⧉ Duplicate</div>
+  <div class="ctx-item" onclick="ctxAction('connect')">⊸ Connect</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" onclick="ctxAction('delete')" style="color:var(--crimson)">✕ Delete</div>
+</div>
+
+<!-- MAIN CANVAS -->
+<div id="canvas-wrapper">
+  <div id="canvas">
+    <!-- SVG for connectors -->
+    <svg id="connector-svg"></svg>
+    <div id="selection-box"></div>
+  </div>
+</div>
+
+<script>
+// ============================================
+// CANVAS STATE
+// ============================================
+let state = {
+  x: -600, y: -300,
+  scale: 0.72,
+  tool: 'select',
+  isDragging: false,
+  isPanning: false,
+  dragCard: null,
+  dragOffset: { x: 0, y: 0 },
+  selectedCards: new Set(),
+  contextCard: null,
+  connecting: { active: false, from: null },
+  connections: [],
+  cards: [],
+  nextId: 0,
+  mouseX: 0, mouseY: 0,
+  selectionStart: null,
+};
+
+const canvas = document.getElementById('canvas');
+const wrapper = document.getElementById('canvas-wrapper');
+const connSvg = document.getElementById('connector-svg');
+const selBox = document.getElementById('selection-box');
+
+// ============================================
+// TRANSFORM
+// ============================================
+function applyTransform() {
+  canvas.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`;
+  document.getElementById('stat-zoom').textContent = Math.round(state.scale * 100);
+  updateMinimap();
+}
+
+function zoom(factor, cx, cy) {
+  const rect = wrapper.getBoundingClientRect();
+  const px = cx ?? rect.width / 2;
+  const py = cy ?? rect.height / 2;
+  const wx = (px - state.x) / state.scale;
+  const wy = (py - state.y) / state.scale;
+  state.scale = Math.min(Math.max(state.scale * factor, 0.06), 3);
+  state.x = px - wx * state.scale;
+  state.y = py - wy * state.scale;
+  applyTransform();
+}
+
+function resetView() {
+  state.x = -600; state.y = -300; state.scale = 0.72;
+  applyTransform();
+}
+
+function setTool(t) {
+  state.tool = t;
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tool-' + t)?.classList.add('active');
+  wrapper.style.cursor = t === 'pan' ? 'grab' : t === 'connect' ? 'crosshair' : 'default';
+  if (t !== 'connect') {
+    state.connecting.active = false;
+    state.connecting.from = null;
+    renderConnectors();
+  }
+}
+
+// ============================================
+// CARD MANAGEMENT
+// ============================================
+function createCard(type, x, y, content, extraClass = '') {
+  const id = 'card-' + (state.nextId++);
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.id = id;
+  card.style.left = x + 'px';
+  card.style.top = y + 'px';
+  card.innerHTML = content;
+  card.dataset.type = type;
+  canvas.appendChild(card);
+
+  state.cards.push({ id, x, y, w: 0, h: 0 });
+
+  setupCardInteraction(card);
+  document.getElementById('stat-cards').textContent = state.cards.length;
+  setTimeout(() => updateMinimapCards(), 100);
+  return card;
+}
+
+function setupCardInteraction(card) {
+  card.addEventListener('mousedown', e => {
+    if (e.button === 2) return;
+    e.stopPropagation();
+
+    if (state.tool === 'connect') {
+      if (!state.connecting.active) {
+        state.connecting.active = true;
+        state.connecting.from = card.id;
+        showNotif('⊸ SELECT TARGET NODE');
+      } else if (state.connecting.from !== card.id) {
+        addConnection(state.connecting.from, card.id);
+        state.connecting.active = false;
+        state.connecting.from = null;
+        setTool('select');
+        showNotif('⊸ LINK ESTABLISHED');
+      }
+      return;
+    }
+
+    if (!state.selectedCards.has(card.id)) {
+      if (!e.shiftKey) clearSelected();
+      selectCard(card);
+    }
+
+    state.isDragging = true;
+    state.dragCard = card;
+    const rect = wrapper.getBoundingClientRect();
+    const canvasX = (e.clientX - rect.left - state.x) / state.scale;
+    const canvasY = (e.clientY - rect.top - state.y) / state.scale;
+    const cardX = parseFloat(card.style.left) || 0;
+    const cardY = parseFloat(card.style.top) || 0;
+    state.dragOffset = { x: canvasX - cardX, y: canvasY - cardY };
+    card.classList.add('dragging');
+  });
+
+  card.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    showContextMenu(e.clientX, e.clientY, card.id);
+  });
+}
+
+function selectCard(card) {
+  state.selectedCards.add(card.id);
+  card.classList.add('selected-card');
+}
+
+function clearSelected() {
+  state.selectedCards.forEach(id => {
+    document.getElementById(id)?.classList.remove('selected-card');
+  });
+  state.selectedCards.clear();
+}
+
+function deleteCard(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+  state.cards = state.cards.filter(c => c.id !== id);
+  state.connections = state.connections.filter(c => c.from !== id && c.to !== id);
+  state.selectedCards.delete(id);
+  document.getElementById('stat-cards').textContent = state.cards.length;
+  renderConnectors();
+  updateMinimap();
+}
+
+// ============================================
+// CONNECTIONS
+// ============================================
+function addConnection(from, to, color) {
+  const colors = [
+    '#00ff9d', '#cc2233', '#7b4fff', '#ffaa00', '#00ccff'
+  ];
+  const c = color || colors[Math.floor(Math.random() * colors.length)];
+  state.connections.push({ from, to, color: c, id: 'conn-' + Date.now() });
+  document.getElementById('stat-links').textContent = state.connections.length;
+  renderConnectors();
+}
+
+function getCardCenter(id) {
+  const el = document.getElementById(id);
+  if (!el) return null;
+  const x = parseFloat(el.style.left) || 0;
+  const y = parseFloat(el.style.top) || 0;
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  return { x: x + w / 2, y: y + h / 2 };
+}
+
+function renderConnectors() {
+  connSvg.innerHTML = '';
+
+  // Defs for glow
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  const colors = ['#00ff9d', '#cc2233', '#7b4fff', '#ffaa00', '#00ccff'];
+  colors.forEach((col, i) => {
+    const filter = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
+    filter.setAttribute('id', 'glow-' + i);
+    const feBlur = document.createElementNS('http://www.w3.org/2000/svg', 'feGaussianBlur');
+    feBlur.setAttribute('stdDeviation', '3');
+    feBlur.setAttribute('result', 'blur');
+    const feMerge = document.createElementNS('http://www.w3.org/2000/svg', 'feMerge');
+    const n1 = document.createElementNS('http://www.w3.org/2000/svg', 'feMergeNode');
+    n1.setAttribute('in', 'blur');
+    const n2 = document.createElementNS('http://www.w3.org/2000/svg', 'feMergeNode');
+    n2.setAttribute('in', 'SourceGraphic');
+    feMerge.appendChild(n1); feMerge.appendChild(n2);
+    filter.appendChild(feBlur); filter.appendChild(feMerge);
+    defs.appendChild(filter);
+  });
+  connSvg.appendChild(defs);
+
+  state.connections.forEach(conn => {
+    const from = getCardCenter(conn.from);
+    const to = getCardCenter(conn.to);
+    if (!from || !to) return;
+
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const cx1 = from.x + dx * 0.4;
+    const cy1 = from.y;
+    const cx2 = from.x + dx * 0.6;
+    const cy2 = to.y;
+
+    const d = `M ${from.x} ${from.y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${to.x} ${to.y}`;
+
+    // Glow
+    const glow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    glow.setAttribute('d', d);
+    glow.setAttribute('stroke', conn.color);
+    glow.setAttribute('stroke-width', '4');
+    glow.setAttribute('fill', 'none');
+    glow.setAttribute('opacity', '0.15');
+    glow.setAttribute('stroke-linecap', 'round');
+    connSvg.appendChild(glow);
+
+    // Main line
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    line.setAttribute('d', d);
+    line.setAttribute('stroke', conn.color);
+    line.setAttribute('stroke-width', '1.2');
+    line.setAttribute('fill', 'none');
+    line.setAttribute('opacity', '0.6');
+    line.setAttribute('stroke-linecap', 'round');
+    line.setAttribute('stroke-dasharray', '0');
+    connSvg.appendChild(line);
+
+    // Arrow
+    const angle = Math.atan2(to.y - cy2, to.x - cx2);
+    const ax = to.x - 8 * Math.cos(angle);
+    const ay = to.y - 8 * Math.sin(angle);
+    const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    const pts = [
+      `${to.x},${to.y}`,
+      `${ax + 4 * Math.sin(angle)},${ay - 4 * Math.cos(angle)}`,
+      `${ax - 4 * Math.sin(angle)},${ay + 4 * Math.cos(angle)}`
+    ].join(' ');
+    arrow.setAttribute('points', pts);
+    arrow.setAttribute('fill', conn.color);
+    arrow.setAttribute('opacity', '0.7');
+    connSvg.appendChild(arrow);
+  });
+}
+
+// ============================================
+// MOUSE EVENTS
+// ============================================
+wrapper.addEventListener('mousedown', e => {
+  if (e.target !== canvas && e.target !== wrapper && e.target.closest('.card')) return;
+
+  if (state.tool === 'pan' || e.button === 1) {
+    state.isPanning = true;
+    state.panStart = { x: e.clientX - state.x, y: e.clientY - state.y };
+    wrapper.style.cursor = 'grabbing';
+  } else if (state.tool === 'select') {
+    clearSelected();
+    const rect = wrapper.getBoundingClientRect();
+    const sx = (e.clientX - rect.left - state.x) / state.scale;
+    const sy = (e.clientY - rect.top - state.y) / state.scale;
+    state.selectionStart = { x: sx, y: sy };
+    selBox.style.display = 'block';
+    selBox.style.left = sx + 'px';
+    selBox.style.top = sy + 'px';
+    selBox.style.width = '0px';
+    selBox.style.height = '0px';
+  }
+});
+
+document.addEventListener('mousemove', e => {
+  const rect = wrapper.getBoundingClientRect();
+  const wx = (e.clientX - rect.left - state.x) / state.scale;
+  const wy = (e.clientY - rect.top - state.y) / state.scale;
+  state.mouseX = wx;
+  state.mouseY = wy;
+  document.getElementById('stat-x').textContent = Math.round(wx);
+  document.getElementById('stat-y').textContent = Math.round(wy);
+
+  if (state.isPanning) {
+    state.x = e.clientX - state.panStart.x;
+    state.y = e.clientY - state.panStart.y;
+    applyTransform();
+  }
+
+  if (state.isDragging && state.dragCard) {
+    const x = wx - state.dragOffset.x;
+    const y = wy - state.dragOffset.y;
+    state.dragCard.style.left = x + 'px';
+    state.dragCard.style.top = y + 'px';
+    const c = state.cards.find(c => c.id === state.dragCard.id);
+    if (c) { c.x = x; c.y = y; }
+    renderConnectors();
+  }
+
+  if (state.selectionStart) {
+    const ex = wx, ey = wy;
+    const sx = state.selectionStart.x, sy = state.selectionStart.y;
+    selBox.style.left = Math.min(sx, ex) + 'px';
+    selBox.style.top = Math.min(sy, ey) + 'px';
+    selBox.style.width = Math.abs(ex - sx) + 'px';
+    selBox.style.height = Math.abs(ey - sy) + 'px';
+  }
+});
+
+document.addEventListener('mouseup', e => {
+  if (state.isDragging && state.dragCard) {
+    state.dragCard.classList.remove('dragging');
+    state.dragCard = null;
+    state.isDragging = false;
+    updateMinimap();
+  }
+  if (state.isPanning) {
+    state.isPanning = false;
+    wrapper.style.cursor = state.tool === 'pan' ? 'grab' : 'default';
+  }
+  if (state.selectionStart) {
+    state.selectionStart = null;
+    selBox.style.display = 'none';
+  }
+});
+
+wrapper.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.1 : 0.9;
+  zoom(factor, e.clientX, e.clientY);
+}, { passive: false });
+
+document.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (!e.target.closest('.card')) {
+    document.getElementById('context-menu').style.display = 'none';
+  }
+});
+
+document.addEventListener('click', () => {
+  document.getElementById('context-menu').style.display = 'none';
+});
+
+// ============================================
+// CONTEXT MENU
+// ============================================
+function showContextMenu(x, y, cardId) {
+  state.contextCard = cardId;
+  const menu = document.getElementById('context-menu');
+  menu.style.display = 'block';
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+}
+
+function ctxAction(action) {
+  const id = state.contextCard;
+  if (!id) return;
+  const el = document.getElementById(id);
+  if (action === 'delete') deleteCard(id);
+  else if (action === 'front') el.style.zIndex = 500;
+  else if (action === 'back') el.style.zIndex = 5;
+  else if (action === 'connect') {
+    setTool('connect');
+    state.connecting.active = true;
+    state.connecting.from = id;
+    showNotif('⊸ SELECT TARGET NODE');
+  } else if (action === 'duplicate') {
+    const x = (parseFloat(el.style.left) || 0) + 30;
+    const y = (parseFloat(el.style.top) || 0) + 30;
+    const newCard = createCard(el.dataset.type, x, y, el.innerHTML);
+    newCard.style.zIndex = el.style.zIndex;
+  }
+  document.getElementById('context-menu').style.display = 'none';
+}
+
+// ============================================
+// ADD CARDS (runtime)
+// ============================================
+function addStickyNote() {
+  const colors = ['sticky-green', 'sticky-red', 'sticky-violet', 'sticky-amber', 'sticky-cyan'];
+  const labels = ['IDEA', 'TODO', 'RESEARCH', 'NOTE', 'CONCEPT'];
+  const col = colors[Math.floor(Math.random() * colors.length)];
+  const lbl = labels[Math.floor(Math.random() * labels.length)];
+  const x = (-state.x / state.scale) + 200 + Math.random() * 400;
+  const y = (-state.y / state.scale) + 200 + Math.random() * 300;
+  createCard('sticky', x, y, `<div class="sticky ${col}"><div class="sticky-label">${lbl}</div>double-click to edit...</div>`);
+}
+
+function addCodeBlock() {
+  const x = (-state.x / state.scale) + 200 + Math.random() * 400;
+  const y = (-state.y / state.scale) + 200 + Math.random() * 300;
+  createCard('code', x, y, `<div class="code-block"><div class="code-header"><div class="code-dots"><div class="code-dot"></div><div class="code-dot"></div><div class="code-dot"></div></div><div class="code-title">untitled.js</div></div><div class="code-body"><span class="cm">// new code block</span><br><span class="kw">const</span> <span class="var">data</span> = [];</div></div>`);
+}
+
+function addDefCard() {
+  const x = (-state.x / state.scale) + 200 + Math.random() * 400;
+  const y = (-state.y / state.scale) + 200 + Math.random() * 300;
+  createCard('def', x, y, `<div class="def-card"><div class="def-term" style="color:var(--phosphor)">TERM</div><div class="def-type">noun · occult · definition</div><div class="def-text">Insert definition here...</div></div>`);
+}
+
+function showNotif(msg) {
+  const n = document.createElement('div');
+  n.className = 'notif';
+  n.textContent = msg;
+  document.body.appendChild(n);
+  setTimeout(() => n.remove(), 3200);
+}
+
+// ============================================
+// MINIMAP
+// ============================================
+function updateMinimap() {
+  const mc = document.getElementById('minimap-canvas');
+  const ctx = mc.getContext('2d');
+  ctx.clearRect(0, 0, 160, 100);
+
+  // Canvas bounds
+  const cw = 8000, ch = 6000;
+  const sx = 160 / cw, sy = 100 / ch;
+
+  // Background
+  ctx.fillStyle = '#0a0a0b';
+  ctx.fillRect(0, 0, 160, 100);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(0,255,157,0.04)';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i < 160; i += 8) {
+    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 100); ctx.stroke();
+  }
+  for (let i = 0; i < 100; i += 8) {
+    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(160, i); ctx.stroke();
+  }
+
+  // Connections
+  state.connections.forEach(conn => {
+    const f = getCardCenter(conn.from);
+    const t = getCardCenter(conn.to);
+    if (!f || !t) return;
+    ctx.strokeStyle = conn.color;
+    ctx.globalAlpha = 0.3;
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(f.x * sx, f.y * sy);
+    ctx.lineTo(t.x * sx, t.y * sy);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  });
+
+  // Cards
+  state.cards.forEach(c => {
+    const el = document.getElementById(c.id);
+    if (!el) return;
+    const type = el.dataset.type;
+    const w = el.offsetWidth * sx;
+    const h = el.offsetHeight * sy;
+    const colors = {
+      sticky: '#00ff9d', code: '#7b4fff', def: '#ffaa00',
+      img: '#00ccff', section: '#cc2233', mindmap: '#ff66aa', eye: '#9966ff', graph: '#00ccff', default: '#555'
+    };
+    ctx.fillStyle = colors[type] || colors.default;
+    ctx.globalAlpha = 0.6;
+    ctx.fillRect(c.x * sx, c.y * sy, Math.max(w, 2), Math.max(h, 2));
+    ctx.globalAlpha = 1;
+  });
+
+  // Viewport indicator
+  const rect = wrapper.getBoundingClientRect();
+  const vx = (-state.x / state.scale) * sx;
+  const vy = (-state.y / state.scale) * sy;
+  const vw = (rect.width / state.scale) * sx;
+  const vh = (rect.height / state.scale) * sy;
+
+  const vp = document.getElementById('minimap-viewport');
+  vp.style.left = Math.max(0, vx) + 'px';
+  vp.style.top = Math.max(0, vy) + 'px';
+  vp.style.width = Math.min(vw, 160) + 'px';
+  vp.style.height = Math.min(vh, 100) + 'px';
+}
+
+document.getElementById('minimap').addEventListener('click', e => {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const cx = (mx / 160) * 8000;
+  const cy = (my / 100) * 6000;
+  const vr = wrapper.getBoundingClientRect();
+  state.x = -(cx * state.scale) + vr.width / 2;
+  state.y = -(cy * state.scale) + vr.height / 2;
+  applyTransform();
+});
+
+function updateMinimapCards() {
+  state.cards.forEach(c => {
+    const el = document.getElementById(c.id);
+    if (el) { c.w = el.offsetWidth; c.h = el.offsetHeight; }
+  });
+  updateMinimap();
+}
+
+// ============================================
+// PARTICLES BACKGROUND
+// ============================================
+const particleCanvas = document.getElementById('particles-bg');
+const pCtx = particleCanvas.getContext('2d');
+let particles = [];
+
+function initParticles() {
+  particleCanvas.width = window.innerWidth;
+  particleCanvas.height = window.innerHeight;
+  particles = Array.from({ length: 120 }, () => ({
+    x: Math.random() * window.innerWidth,
+    y: Math.random() * window.innerHeight,
+    vx: (Math.random() - 0.5) * 0.3,
+    vy: (Math.random() - 0.5) * 0.3,
+    r: Math.random() * 1.5 + 0.3,
+    a: Math.random() * 0.5 + 0.1,
+    col: ['#00ff9d', '#7b4fff', '#cc2233', '#ffaa00', '#00ccff'][Math.floor(Math.random() * 5)]
+  }));
+}
+
+function animParticles() {
+  pCtx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy;
+    if (p.x < 0) p.x = particleCanvas.width;
+    if (p.x > particleCanvas.width) p.x = 0;
+    if (p.y < 0) p.y = particleCanvas.height;
+    if (p.y > particleCanvas.height) p.y = 0;
+    pCtx.beginPath();
+    pCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    pCtx.fillStyle = p.col;
+    pCtx.globalAlpha = p.a;
+    pCtx.fill();
+    pCtx.globalAlpha = 1;
+  });
+
+  // Connect nearby
+  for (let i = 0; i < particles.length; i++) {
+    for (let j = i + 1; j < particles.length; j++) {
+      const dx = particles[i].x - particles[j].x;
+      const dy = particles[i].y - particles[j].y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < 80) {
+        pCtx.beginPath();
+        pCtx.moveTo(particles[i].x, particles[i].y);
+        pCtx.lineTo(particles[j].x, particles[j].y);
+        pCtx.strokeStyle = particles[i].col;
+        pCtx.globalAlpha = (1 - d / 80) * 0.08;
+        pCtx.lineWidth = 0.5;
+        pCtx.stroke();
+        pCtx.globalAlpha = 1;
+      }
+    }
+  }
+
+  requestAnimationFrame(animParticles);
+}
+
+initParticles();
+animParticles();
+window.addEventListener('resize', initParticles);
+
+// ============================================
+// POPULATE CANVAS WITH INITIAL CONTENT
+// ============================================
+function buildCanvas() {
+  // === ZONE: AUDIO ENGINEERING ===
+  createCard('section', 180, 150, `
+    <div class="section-header" style="color:var(--phosphor);background:var(--phosphor-faint);border:1px solid var(--phosphor-dim);">
+      ◈ AUDIO ENGINEERING LAB
+    </div>
+  `);
+
+  createCard('sticky', 180, 220, `
+    <div class="sticky sticky-green">
+      <div class="sticky-label">⚡ SIGNAL CHAIN</div>
+      INPUT → PREAMP → EQ → COMPRESSOR → LIMITER → DAW<br><br>
+      Gain staging at every node.<br>
+      -18dBFS target headroom.<br>
+      Peak never above -6dBFS.
+    </div>
+  `);
+
+  createCard('code', 420, 200, `
+    <div class="code-block" style="width:300px">
+      <div class="code-header">
+        <div class="code-dots"><div class="code-dot"></div><div class="code-dot"></div><div class="code-dot"></div></div>
+        <div class="code-title">compressor.dsp</div>
+      </div>
+      <div class="code-body">
+<span class="cm">// Drum Bus Compressor</span><br>
+<span class="kw">ratio</span>  = <span class="num">4:1</span><br>
+<span class="kw">attack</span> = <span class="num">1.2ms</span><br>
+<span class="kw">release</span>= <span class="num">80ms</span><br>
+<span class="kw">knee</span>   = <span class="num">soft</span><br>
+<span class="kw">makeup</span> = <span class="num">+3.5dB</span><br>
+<span class="cm">// sidechain: kick @ 60Hz</span><br>
+<span class="fn">process</span>(<span class="var">signal</span>, <span class="var">sc</span>) {<br>
+&nbsp; <span class="kw">return</span> <span class="fn">rms_detect</span>(<span class="var">sc</span>);<br>
+}
+      </div>
+    </div>
+  `);
+
+  createCard('progress', 740, 200, `
+    <div class="progress-card" style="width:200px">
+      <div class="progress-label">// PROJECT STATUS</div>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:9px;color:var(--text-secondary)">
+          <span>TRACKING</span><span style="color:var(--phosphor)">100%</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:100%;background:var(--phosphor)"></div></div>
+      </div>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:9px;color:var(--text-secondary)">
+          <span>MIXING</span><span style="color:var(--amber)">67%</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:67%;background:var(--amber)"></div></div>
+      </div>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:9px;color:var(--text-secondary)">
+          <span>MASTERING</span><span style="color:var(--crimson)">12%</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:12%;background:var(--crimson)"></div></div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:9px;color:var(--text-secondary)">
+          <span>DISTRIBUTION</span><span style="color:var(--text-dim)">0%</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:0%;background:var(--violet)"></div></div>
+      </div>
+    </div>
+  `);
+
+  createCard('waveform', 180, 420, `
+    <div class="waveform-card" style="width:280px">
+      <div style="font-size:8px;letter-spacing:2px;color:var(--text-dim);margin-bottom:8px">◈ WAVEFORM — 808.WAV</div>
+      <svg width="260" height="60" style="display:block">
+        <defs>
+          <linearGradient id="wg" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="#00ff9d" stop-opacity="0.8"/>
+            <stop offset="100%" stop-color="#00ff9d" stop-opacity="0.1"/>
+          </linearGradient>
+        </defs>
+        ${Array.from({length:52}, (_, i) => {
+          const h = Math.abs(Math.sin(i * 0.4) * 20 + Math.sin(i * 0.15) * 15 + Math.random() * 8);
+          const x = i * 5;
+          return `<rect x="${x}" y="${30 - h/2}" width="3" height="${h}" fill="url(#wg)" rx="1"/>`;
+        }).join('')}
+      </svg>
+      <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--text-dim);margin-top:6px">
+        <span>0:00</span><span style="color:var(--phosphor)">-6.2 dB</span><span>0:04</span>
+      </div>
+    </div>
+  `);
+
+  createCard('def', 500, 420, `
+    <div class="def-card" style="width:240px">
+      <div class="def-term" style="color:var(--phosphor)">HAAS EFFECT</div>
+      <div class="def-type">noun · psychoacoustics · stereo</div>
+      <div class="def-text">When two identical sounds arrive <span style="color:var(--phosphor)">< 40ms</span> apart, the brain fuses them, perceiving direction from the first arrival. Used in stereo widening to create spatial depth without comb filtering artifacts.</div>
+    </div>
+  `);
+
+  // === ZONE: MARKETING STRATEGY ===
+  createCard('section', 1100, 150, `
+    <div class="section-header" style="color:var(--crimson-bright);background:var(--crimson-faint);border:1px solid var(--crimson);">
+      ⬡ MARKETING STRATEGY
+    </div>
+  `);
+
+  createCard('sticky', 1100, 220, `
+    <div class="sticky sticky-red">
+      <div class="sticky-label">🎯 TARGET DEMO</div>
+      AGE: 22–34<br>
+      INCOME: $45k–$95k<br>
+      IDENTITY: creative technologist<br>
+      PAIN: too much noise, zero signal<br>
+      DESIRE: to be seen as visionary
+    </div>
+  `);
+
+  createCard('sticky', 1320, 220, `
+    <div class="sticky sticky-amber">
+      <div class="sticky-label">⚡ CHANNEL STRATEGY</div>
+      PRIMARY: organic short-form<br>
+      SECONDARY: editorial email<br>
+      DARK: Discord + Telegram<br>
+      PAID: retargeting only<br>
+      OOH: none (not yet)
+    </div>
+  `);
+
+  createCard('code', 1540, 200, `
+    <div class="code-block" style="width:280px">
+      <div class="code-header">
+        <div class="code-dots"><div class="code-dot"></div><div class="code-dot"></div><div class="code-dot"></div></div>
+        <div class="code-title">funnel.map</div>
+      </div>
+      <div class="code-body">
+<span class="cm">// Conversion Architecture</span><br>
+<span class="kw">AWARENESS</span>  <span class="num">→</span> <span class="str">viral_hook</span><br>
+<span class="kw">INTEREST</span>   <span class="num">→</span> <span class="str">deep_content</span><br>
+<span class="kw">DESIRE</span>     <span class="num">→</span> <span class="str">social_proof</span><br>
+<span class="kw">ACTION</span>     <span class="num">→</span> <span class="str">frictionless_cta</span><br>
+<span class="kw">RETENTION</span>  <span class="num">→</span> <span class="str">lore_expansion</span><br>
+<span class="cm">// 7-touch rule still applies</span>
+      </div>
+    </div>
+  `);
+
+  createCard('chart', 1100, 420, `
+    <div class="chart-card" style="width:320px">
+      <div style="font-size:8px;letter-spacing:2px;color:var(--text-dim);margin-bottom:10px">◈ ENGAGEMENT RATE / CHANNEL</div>
+      ${[['TIKTOK', 8.4, '#00ff9d'], ['INSTAGRAM', 5.2, '#7b4fff'], ['TWITTER/X', 3.8, '#00ccff'], ['YOUTUBE', 6.1, '#ffaa00'], ['EMAIL', 42.0, '#cc2233']].map(([name, val, col]) => `
+        <div style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;font-size:9px;margin-bottom:3px">
+            <span style="color:var(--text-secondary)">${name}</span>
+            <span style="color:${col};font-family:var(--mono)">${val}%</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(val/50*100, 100)}%;background:${col}"></div></div>
+        </div>
+      `).join('')}
+    </div>
+  `);
+
+  createCard('timeline', 1450, 400, `
+    <div class="timeline-card">
+      <div style="font-size:8px;letter-spacing:2px;color:var(--text-dim);margin-bottom:12px">◈ CAMPAIGN TIMELINE</div>
+      <div class="timeline-item">
+        <div class="timeline-dot" style="background:var(--phosphor);box-shadow:0 0 8px var(--phosphor)"></div>
+        <div>
+          <div style="font-size:9px;color:var(--text-primary)">Phase I — Seeding</div>
+          <div class="timeline-time">Q1 2025 · COMPLETE</div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot" style="background:var(--amber);box-shadow:0 0 8px var(--amber)"></div>
+        <div>
+          <div style="font-size:9px;color:var(--text-primary)">Phase II — Amplification</div>
+          <div class="timeline-time">Q2 2025 · IN PROGRESS</div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot" style="background:var(--border)"></div>
+        <div>
+          <div style="font-size:9px;color:var(--text-secondary)">Phase III — Monetization</div>
+          <div class="timeline-time">Q3 2025 · PENDING</div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot" style="background:var(--border)"></div>
+        <div>
+          <div style="font-size:9px;color:var(--text-secondary)">Phase IV — Scale</div>
+          <div class="timeline-time">Q4 2025 · PENDING</div>
+        </div>
+      </div>
+    </div>
+  `);
+
+  // === ZONE: BRAND VISION ===
+  createCard('section', 300, 750, `
+    <div class="section-header" style="color:var(--violet-bright);background:var(--violet-faint);border:1px solid var(--violet);">
+      ◉ BRAND VISION BOARD
+    </div>
+  `);
+
+  createCard('img', 300, 820, `
+    <div class="img-card" style="width:180px">
+      <div class="img-placeholder" style="height:120px;background:linear-gradient(135deg,#0d0d14,#1a0d2e,#0d1020)">
+        <svg width="180" height="120" style="position:absolute">
+          ${Array.from({length:20}, () => {
+            const x1 = Math.random()*180, y1 = Math.random()*120;
+            const x2 = Math.random()*180, y2 = Math.random()*120;
+            return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#7b4fff" stroke-width="0.5" opacity="0.3"/>`;
+          }).join('')}
+          <circle cx="90" cy="60" r="20" fill="none" stroke="#7b4fff" stroke-width="1" opacity="0.6"/>
+          <circle cx="90" cy="60" r="35" fill="none" stroke="#7b4fff" stroke-width="0.5" opacity="0.3"/>
+          <text x="90" y="64" text-anchor="middle" fill="#9966ff" font-family="monospace" font-size="8" letter-spacing="2">VOID</text>
+        </svg>
+      </div>
+      <div class="img-caption">LOGO CONCEPT v3.2</div>
+    </div>
+  `);
+
+  createCard('hexcolor', 500, 820, `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;width:200px">
+      <div style="font-size:8px;letter-spacing:2px;color:var(--text-dim);margin-bottom:10px">◈ BRAND PALETTE</div>
+      ${[['#0A0A0B', 'VOID BLACK'], ['#00FF9D', 'PHOSPHOR'], ['#CC2233', 'CRIMSON'], ['#7B4FFF', 'VIOLET'], ['#FFAA00', 'AMBER'], ['#00CCFF', 'CYAN']].map(([hex, name]) => `
+        <div class="hex-tag" style="margin-bottom:5px;width:100%">
+          <span class="hex-swatch" style="background:${hex};border:1px solid rgba(255,255,255,0.1)"></span>
+          <span style="color:var(--text-secondary)">${hex}</span>
+          <span style="color:var(--text-dim);margin-left:auto;font-size:8px">${name}</span>
+        </div>
+      `).join('')}
+    </div>
+  `);
+
+  createCard('sticky', 720, 820, `
+    <div class="sticky sticky-violet" style="width:220px">
+      <div class="sticky-label">🔮 BRAND ARCHETYPES</div>
+      PRIMARY: The Magician<br>
+      SHADOW: The Outlaw<br>
+      ASPIRATION: The Sage<br><br>
+      <span style="color:var(--violet)">Keywords:</span> occult precision,<br>
+      terminal clarity, signal over noise,<br>
+      dark elegance, raw systems
+    </div>
+  `);
+
+  createCard('tags', 960, 820, `
+    <div class="tag-cluster">
+      <div style="font-size:8px;letter-spacing:2px;color:var(--text-dim);margin-bottom:6px;width:100%">◈ BRAND KEYWORDS</div>
+      ${['DARK', 'PRECISE', 'TERMINAL', 'GLOWING', 'DENSE', 'RITUAL', 'SYSTEM', 'OCCULT', 'SIGNAL', 'NOISE', 'CRAFT', 'MACHINE', 'DEEP', 'RAW', 'LIMINAL', 'VOID', 'CIPHER', 'GRID', 'PULSE', 'EDGE'].map(t => `<span class="tag">${t}</span>`).join('')}
+    </div>
+  `);
+
+  // === ZONE: MINDMAP ===
+  createCard('section', 1200, 750, `
+    <div class="section-header" style="color:var(--cyan);background:var(--cyan-faint);border:1px solid var(--cyan);">
+      ⬡ MASTERMIND MAP
+    </div>
+  `);
+
+  createCard('mindmap', 1380, 820, `
+    <div class="mindmap-node mindmap-central" style="border-color:var(--phosphor);color:var(--phosphor);background:var(--phosphor-faint);box-shadow:0 0 30px var(--phosphor-faint)">
+      VOID SYSTEM
+    </div>
+  `);
+
+  const mmNodes = [
+    [1200, 900, 'AUDIO', '#00ff9d'],
+    [1560, 900, 'VISUAL', '#7b4fff'],
+    [1200, 1000, 'BRAND', '#ffaa00'],
+    [1560, 1000, 'TECH', '#00ccff'],
+    [1300, 1100, 'COMMUNITY', '#cc2233'],
+    [1480, 1100, 'REVENUE', '#ff66aa'],
+  ];
+
+  mmNodes.forEach(([x, y, label, color]) => {
+    createCard('mindmap-node', x, y, `
+      <div class="mindmap-node" style="border-color:${color};color:${color};background:${color}22">${label}</div>
+    `);
+  });
+
+  // === ZONE: VISUAL EXPERIMENTS ===
+  createCard('section', 300, 1350, `
+    <div class="section-header" style="color:var(--amber);background:var(--amber-faint);border:1px solid var(--amber);">
+      ⬡ VISUAL EXPERIMENTS
+    </div>
+  `);
+
+  createCard('img', 300, 1420, `
+    <div class="img-card" style="width:200px">
+      <div class="img-placeholder" style="height:160px;background:#0a0a0c;position:relative;overflow:hidden">
+        <canvas id="exp-canvas" width="200" height="160" style="display:block"></canvas>
+      </div>
+      <div class="img-caption">PARTICLE FIELD EXP.03</div>
+    </div>
+  `);
+
+  createCard('img', 520, 1420, `
+    <div class="img-card" style="width:200px">
+      <div class="img-placeholder" style="height:160px;background:#0a0a0c">
+        <svg width="200" height="160">
+          <defs>
+            <radialGradient id="rg1" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#cc2233" stop-opacity="0.6"/>
+              <stop offset="100%" stop-color="#0a0a0c" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+          <circle cx="100" cy="80" r="60" fill="url(#rg1)"/>
+          ${Array.from({length:8}, (_, i) => {
+            const a = (i/8) * Math.PI * 2;
+            const r1 = 20, r2 = 55;
+            return `<line x1="${100+Math.cos(a)*r1}" y1="${80+Math.sin(a)*r1}" x2="${100+Math.cos(a)*r2}" y2="${80+Math.sin(a)*r2}" stroke="#cc2233" stroke-width="1" opacity="0.5"/>`;
+          }).join('')}
+          <circle cx="100" cy="80" r="20" fill="none" stroke="#ff2244" stroke-width="1" opacity="0.7"/>
+          <circle cx="100" cy="80" r="8" fill="#cc2233" opacity="0.8"/>
+          <text x="100" y="140" text-anchor="middle" fill="#cc2233" font-family="monospace" font-size="7" letter-spacing="2" opacity="0.6">SIGIL.04</text>
+        </svg>
+      </div>
+      <div class="img-caption">SIGIL GENERATOR v0.4</div>
+    </div>
+  `);
+
+  createCard('code', 740, 1420, `
+    <div class="code-block" style="width:320px">
+      <div class="code-header">
+        <div class="code-dots"><div class="code-dot"></div><div class="code-dot"></div><div class="code-dot"></div></div>
+        <div class="code-title">shader.glsl</div>
+      </div>
+      <div class="code-body">
+<span class="cm">// Fragment shader — glow field</span><br>
+<span class="kw">uniform</span> <span class="var">float</span> <span class="fn">uTime</span>;<br>
+<span class="kw">uniform</span> <span class="var">vec2</span>  <span class="fn">uRes</span>;<br><br>
+<span class="fn">void</span> <span class="var">main</span>() {<br>
+&nbsp; <span class="var">vec2</span> uv = gl_FragCoord.xy / <span class="fn">uRes</span>;<br>
+&nbsp; <span class="var">float</span> d = <span class="fn">length</span>(uv - <span class="num">.5</span>);<br>
+&nbsp; <span class="var">float</span> g = <span class="fn">exp</span>(-d * <span class="num">8.</span>);<br>
+&nbsp; gl_FragColor = <span class="var">vec4</span>(<br>
+&nbsp;&nbsp;&nbsp;<span class="num">0.</span>, g * <span class="num">1.</span>, g * <span class="num">.6</span>, <span class="num">1.</span><br>
+&nbsp; );<br>
+}
+      </div>
+    </div>
+  `);
+
+  // === ZONE: DEFINITIONS ===
+  createCard('section', 1100, 1350, `
+    <div class="section-header" style="color:var(--violet-bright);background:var(--violet-faint);border:1px solid var(--violet);">
+      ⬡ OBSCURE DEFINITIONS
+    </div>
+  `);
+
+  const defs = [
+    ['APOPHENIA', 'noun · psychology', 'The tendency to perceive meaningful connections between unrelated things. In creative systems, this becomes generative rather than delusional — <span style="color:var(--violet)">the engine of pattern synthesis</span>.'],
+    ['LIMINAL', 'adj · anthropology', 'Occupying a position at, or on both sides of, a boundary or threshold. The creative space between states — where transformation becomes possible and identity becomes <span style="color:var(--violet)">fluid</span>.'],
+    ['PARATEXT', 'noun · semiotics', 'Elements surrounding a text that frame its meaning — titles, trailers, covers, packaging. In digital systems, paratext <span style="color:var(--violet)">exceeds the text itself</span> in influence.'],
+  ];
+
+  defs.forEach(([term, type, text], i) => {
+    createCard('def', 1100 + i * 260, 1420, `
+      <div class="def-card" style="width:240px">
+        <div class="def-term" style="color:var(--violet-bright)">${term}</div>
+        <div class="def-type">${type}</div>
+        <div class="def-text">${text}</div>
+      </div>
+    `);
+  });
+
+  // === ZONE: PLANNING ===
+  createCard('section', 300, 1950, `
+    <div class="section-header" style="color:var(--crimson-bright);background:var(--crimson-faint);border:1px solid var(--crimson);">
+      ⬡ MASTERMIND PLANNING
+    </div>
+  `);
+
+  createCard('sticky', 300, 2020, `
+    <div class="sticky sticky-red" style="width:260px">
+      <div class="sticky-label">🔴 CRITICAL PATH — Q2</div>
+      ① Release audio EP [track 1-4]<br>
+      ② Launch brand site (dark mode)<br>
+      ③ Activate email list: 5k target<br>
+      ④ Collab with 3 visual artists<br>
+      ⑤ Submit to 2 sync licensing<br>
+      ⑥ Document everything publicly
+    </div>
+  `);
+
+  createCard('code', 580, 2000, `
+    <div class="code-block" style="width:300px">
+      <div class="code-header">
+        <div class="code-dots"><div class="code-dot"></div><div class="code-dot"></div><div class="code-dot"></div></div>
+        <div class="code-title">metrics.kpi</div>
+      </div>
+      <div class="code-body">
+<span class="cm">// Success Metrics</span><br>
+<span class="kw">streams</span>   &gt; <span class="num">100k</span>   <span class="str">[ PRIORITY ]</span><br>
+<span class="kw">followers</span> &gt; <span class="num">10k</span>    <span class="str">[ SECONDARY ]</span><br>
+<span class="kw">email_ctr</span> &gt; <span class="num">35%</span>    <span class="str">[ CRITICAL ]</span><br>
+<span class="kw">rev_mrr</span>   &gt; <span class="num">$3k</span>    <span class="str">[ TARGET ]</span><br>
+<span class="kw">collab</span>    = <span class="num">3</span>      <span class="str">[ Q2 GOAL ]</span><br>
+<span class="cm">// review weekly, adjust monthly</span>
+      </div>
+    </div>
+  `);
+
+  createCard('marquee', 900, 2020, `
+    <div class="marquee-container" style="width:320px">
+      <div class="marquee-inner">
+        &nbsp;◈ VOID SYSTEM ACTIVE &nbsp;·&nbsp; SIGNAL PROCESSING &nbsp;·&nbsp; BUILD IN DARKNESS &nbsp;·&nbsp; SHIP INTO LIGHT &nbsp;·&nbsp; NO NOISE ONLY SIGNAL &nbsp;·&nbsp; VOID SYSTEM ACTIVE &nbsp;·&nbsp; SIGNAL PROCESSING &nbsp;·&nbsp; BUILD IN DARKNESS &nbsp;·&nbsp; SHIP INTO LIGHT &nbsp;·&nbsp; NO NOISE ONLY SIGNAL &nbsp;
+      </div>
+    </div>
+    <div style="margin-top:8px">
+      <div class="marquee-container" style="width:320px">
+        <div class="marquee-inner" style="animation-direction:reverse;animation-duration:15s">
+          &nbsp;⬡ APOPHENIA ENGINE &nbsp;·&nbsp; LIMINAL SPACE &nbsp;·&nbsp; TERMINAL AESTHETICS &nbsp;·&nbsp; RECURSIVE SYSTEM &nbsp;·&nbsp; DARK ELEGANCE &nbsp;·&nbsp; APOPHENIA ENGINE &nbsp;·&nbsp; LIMINAL SPACE &nbsp;·&nbsp; TERMINAL AESTHETICS &nbsp;·&nbsp;
+        </div>
+      </div>
+    </div>
+  `);
+
+  createCard('sticky', 1240, 2020, `
+    <div class="sticky sticky-cyan" style="width:220px">
+      <div class="sticky-label">💡 NORTH STAR</div>
+      Build an aesthetic system so dense and self-consistent that it generates its own gravity.<br><br>
+      People don't follow products.<br>
+      They <span style="color:var(--cyan);font-weight:700">enter worlds</span>.
+    </div>
+  `);
+
+  // === ZONE LABELS ===
+  [
+    [140, 130, 'AUDIO_LAB', '#00ff9d'],
+    [1060, 130, 'MARKETING', '#cc2233'],
+    [260, 730, 'BRAND', '#7b4fff'],
+    [1160, 730, 'MINDMAP', '#00ccff'],
+    [260, 1330, 'EXPERIMENTS', '#ffaa00'],
+    [1060, 1330, 'LEXICON', '#7b4fff'],
+    [260, 1930, 'PLANNING', '#cc2233'],
+  ].forEach(([x, y, text, color]) => {
+    const label = document.createElement('div');
+    label.className = 'zone-label';
+    label.style.left = x + 'px';
+    label.style.top = y + 'px';
+    label.style.color = color;
+    label.textContent = '// ' + text;
+    canvas.appendChild(label);
+  });
+
+  // === GLOW ORBS ===
+  const orbs = [
+    [800, 600, 400, '#00ff9d'],
+    [1600, 300, 300, '#cc2233'],
+    [400, 1200, 350, '#7b4fff'],
+    [1800, 1400, 400, '#00ccff'],
+    [900, 2100, 300, '#ffaa00'],
+  ];
+
+  orbs.forEach(([x, y, r, col]) => {
+    const orb = document.createElement('div');
+    orb.className = 'glow-orb';
+    orb.style.left = (x - r) + 'px';
+    orb.style.top = (y - r) + 'px';
+    orb.style.width = (r * 2) + 'px';
+    orb.style.height = (r * 2) + 'px';
+    orb.style.background = col;
+    canvas.appendChild(orb);
+  });
+
+  // === CONNECT INITIAL CARDS ===
+  setTimeout(() => {
+    const cardIds = state.cards.map(c => c.id);
+    if (cardIds.length >= 8) {
+      const connections = [
+        [0, 1, '#00ff9d'],
+        [1, 2, '#00ff9d'],
+        [0, 3, '#7b4fff'],
+        [2, 4, '#ffaa00'],
+        [5, 6, '#cc2233'],
+        [6, 7, '#cc2233'],
+        [7, 8, '#ffaa00'],
+        [9, 10, '#7b4fff'],
+        [10, 11, '#7b4fff'],
+        [12, 13, '#00ff9d'],
+        [15, 16, '#7b4fff'],
+        [20, 21, '#cc2233'],
+        [21, 22, '#ffaa00'],
+        [3, 9, '#00ccff'],
+        [13, 20, '#cc2233'],
+        [4, 15, '#7b4fff'],
+      ];
+      connections.forEach(([fi, ti, col]) => {
+        if (cardIds[fi] && cardIds[ti]) {
+          addConnection(cardIds[fi], cardIds[ti], col);
+        }
+      });
+    }
+    updateMinimapCards();
+  }, 300);
+
+  // === EXPERIMENT CANVAS ===
+  setTimeout(() => {
+    const ec = document.getElementById('exp-canvas');
+    if (ec) {
+      const ctx = ec.getContext('2d');
+      let t = 0;
+      function drawExp() {
+        ctx.fillStyle = 'rgba(10,10,12,0.1)';
+        ctx.fillRect(0, 0, 200, 160);
+        for (let i = 0; i < 5; i++) {
+          const x = 100 + Math.cos(t * 0.7 + i * 1.2) * 60;
+          const y = 80 + Math.sin(t * 0.5 + i * 0.8) * 50;
+          ctx.beginPath();
+          ctx.arc(x, y, 2, 0, Math.PI * 2);
+          ctx.fillStyle = `hsl(${150 + i * 30 + t * 10}, 100%, 60%)`;
+          ctx.globalAlpha = 0.8;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        t += 0.03;
+        requestAnimationFrame(drawExp);
+      }
+      drawExp();
+    }
+  }, 500);
+}
+
+// ============================================
+// INIT
+// ============================================
+applyTransform();
+buildCanvas();
+updateMinimap();
+
+// Space bar panning
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    setTool('pan');
+  }
+  if (e.code === 'Escape') {
+    setTool('select');
+    clearSelected();
+    state.connecting.active = false;
+  }
+  if (e.code === 'Delete' || e.code === 'Backspace') {
+    if (document.activeElement === document.body) {
+      state.selectedCards.forEach(id => deleteCard(id));
+    }
+  }
+});
+
+document.addEventListener('keyup', e => {
+  if (e.code === 'Space') setTool('select');
+});
+
+// Keyboard shortcuts display
+showNotif('⚡ OCULUS LOADED — DRAG TO PAN · SCROLL TO ZOOM · THE EYES TRACK YOU');
+
+// Periodic minimap refresh
+setInterval(updateMinimap, 1000);
+</script>
+<script>
+/* ================================================================
+   OCULUS ENGINE
+   procedural irises · gaze tracking · macro-eye · ocular zones
+   ================================================================ */
+(function () {
+
+  /* ---------- deterministic noise ---------- */
+  function rng(seed) {
+    let a = (seed * 1664525 + 1013904223) >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  const PAL = {
+    phosphor: ['#00ff9d', '#00cc7a', '#04231a'],
+    crimson:  ['#ff2244', '#cc2233', '#26060c'],
+    violet:   ['#9966ff', '#7b4fff', '#150a2e'],
+    amber:    ['#ffaa00', '#cc8800', '#2a1c00'],
+    cyan:     ['#00ccff', '#0099cc', '#04222e'],
+    bone:     ['#e8e8ec', '#8a8a95', '#1b1b1f'],
+  };
+  const PAL_KEYS = Object.keys(PAL);
+
+  let uid = 0;
+  const eyes = [];
+
+  /* ---------- THE IRIS RENDERER ----------
+     Every eye on this board comes out of this one function.        */
+  function iris(opt) {
+    const o = Object.assign({
+      size: 160, pal: 'phosphor', seed: 1, pupil: 0.34,
+      fibers: 60, lids: true, veins: true, drift: false, sweep: false
+    }, opt);
+
+    const s = o.size, R = s / 2, id = 'ocu' + (uid++);
+    const P = PAL[o.pal] || PAL.phosphor;
+    const hi = P[0], mid = P[1], dark = P[2];
+    const rnd = rng(o.seed * 7919 + 13);
+
+    const irisR = R * 0.60;
+    const pupR = irisR * o.pupil;
+    const halfW = R * 0.99;
+    const open = R * 0.66;
+
+    // almond lid aperture
+    const lidPath =
+      `M ${R - halfW} ${R} ` +
+      `C ${R - halfW * 0.55} ${R - open * 1.34}, ${R + halfW * 0.55} ${R - open * 1.34}, ${R + halfW} ${R} ` +
+      `C ${R + halfW * 0.55} ${R + open * 1.18}, ${R - halfW * 0.55} ${R + open * 1.18}, ${R - halfW} ${R} Z`;
+
+    // iris fibers (stroma)
+    let fib = '';
+    for (let i = 0; i < o.fibers; i++) {
+      const a = (i / o.fibers) * Math.PI * 2 + rnd() * 0.05;
+      const r0 = pupR * (1.02 + rnd() * 0.12);
+      const r1 = irisR * (0.72 + rnd() * 0.30);
+      const bend = (rnd() - 0.5) * 0.25;
+      const x0 = R + Math.cos(a) * r0, y0 = R + Math.sin(a) * r0;
+      const x1 = R + Math.cos(a + bend) * r1, y1 = R + Math.sin(a + bend) * r1;
+      const xm = R + Math.cos(a + bend * 0.4) * (r0 + r1) * 0.5;
+      const ym = R + Math.sin(a + bend * 0.4) * (r0 + r1) * 0.5;
+      fib += `<path d="M${x0.toFixed(1)} ${y0.toFixed(1)} Q${xm.toFixed(1)} ${ym.toFixed(1)} ${x1.toFixed(1)} ${y1.toFixed(1)}" stroke="${rnd() > 0.72 ? hi : mid}" stroke-width="${(0.4 + rnd() * 1.1).toFixed(2)}" fill="none" opacity="${(0.14 + rnd() * 0.55).toFixed(2)}"/>`;
+    }
+    // crypts — dark voids in the stroma
+    let crypt = '';
+    for (let i = 0; i < Math.max(3, o.fibers / 12); i++) {
+      const a = rnd() * Math.PI * 2, rr = pupR + rnd() * (irisR - pupR) * 0.8;
+      crypt += `<ellipse cx="${(R + Math.cos(a) * rr).toFixed(1)}" cy="${(R + Math.sin(a) * rr).toFixed(1)}" rx="${(irisR * 0.10 * (0.5 + rnd())).toFixed(1)}" ry="${(irisR * 0.05 * (0.5 + rnd())).toFixed(1)}" transform="rotate(${(a * 57.3).toFixed(0)} ${(R + Math.cos(a) * rr).toFixed(1)} ${(R + Math.sin(a) * rr).toFixed(1)})" fill="#000" opacity="0.42"/>`;
+    }
+    // sclera veins
+    let veins = '';
+    if (o.veins) {
+      for (let i = 0; i < 4; i++) {
+        const side = i % 2 ? 1 : -1;
+        const y = R + (rnd() - 0.5) * open * 0.9;
+        veins += `<path d="M ${R + side * halfW * 0.96} ${y} q ${-side * halfW * 0.3} ${(rnd() - 0.5) * 14} ${-side * halfW * 0.5} ${(rnd() - 0.5) * 8}" stroke="var(--vein)" stroke-width="${(0.5 + rnd()).toFixed(1)}" fill="none" opacity="${(0.18 + rnd() * 0.3).toFixed(2)}"/>`;
+      }
+    }
+
+    return `
+<svg class="eye-svg" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" style="--lid:${(open * 1.05).toFixed(1)}px;--pr:${pupR.toFixed(1)}px" data-eye data-r="${R}">
+  <defs>
+    <radialGradient id="${id}-i" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="${dark}"/>
+      <stop offset="42%" stop-color="${mid}" stop-opacity="0.55"/>
+      <stop offset="78%" stop-color="${hi}" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.9"/>
+    </radialGradient>
+    <radialGradient id="${id}-p" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#000"/>
+      <stop offset="70%" stop-color="#000"/>
+      <stop offset="100%" stop-color="${hi}" stop-opacity="0.55"/>
+    </radialGradient>
+    <radialGradient id="${id}-s" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#15151b"/>
+      <stop offset="100%" stop-color="var(--sclera)"/>
+    </radialGradient>
+    <clipPath id="${id}-c"><path d="${lidPath}"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#${id}-c)">
+    <rect x="0" y="0" width="${s}" height="${s}" fill="url(#${id}-s)"/>
+    ${veins}
+    <g class="eye-globe">
+      <circle cx="${R}" cy="${R}" r="${irisR * 1.04}" fill="#000" opacity="0.85"/>
+      <circle cx="${R}" cy="${R}" r="${irisR}" fill="url(#${id}-i)"/>
+      <g class="fibers"${o.drift ? '' : ' style="animation:none"'}>${fib}${crypt}</g>
+      <circle cx="${R}" cy="${R}" r="${irisR * 0.46}" fill="none" stroke="${hi}" stroke-width="${(R * 0.012).toFixed(2)}" opacity="0.45"/>
+      <circle cx="${R}" cy="${R}" r="${irisR}" fill="none" stroke="#000" stroke-width="${(R * 0.05).toFixed(2)}" opacity="0.75"/>
+      <circle cx="${R}" cy="${R}" r="${irisR * 1.02}" fill="none" stroke="${hi}" stroke-width="${(R * 0.014).toFixed(2)}" opacity="0.5"/>
+      <g class="pupil-grp">
+        <circle class="pupil-core" cx="${R}" cy="${R}" r="${pupR}" fill="url(#${id}-p)"/>
+        <circle cx="${R}" cy="${R}" r="${pupR * 0.94}" fill="#000"/>
+        <ellipse cx="${R - irisR * 0.30}" cy="${R - irisR * 0.32}" rx="${irisR * 0.13}" ry="${irisR * 0.09}" fill="#fff" opacity="0.55" transform="rotate(-24 ${R - irisR * 0.30} ${R - irisR * 0.32})"/>
+        <circle cx="${R + irisR * 0.20}" cy="${R + irisR * 0.24}" r="${irisR * 0.045}" fill="#fff" opacity="0.22"/>
+      </g>
+    </g>
+    <rect class="lid-t" x="0" y="${-s}" width="${s}" height="${s}" fill="#000"/>
+    <rect class="lid-b" x="0" y="${s}" width="${s}" height="${s}" fill="#000"/>
+  </g>
+  <path d="${lidPath}" fill="none" stroke="${mid}" stroke-width="${(R * 0.018).toFixed(2)}" opacity="0.5"/>
+  <path d="${lidPath}" fill="none" stroke="${hi}" stroke-width="${(R * 0.006).toFixed(2)}" opacity="0.28"/>
+</svg>`.trim();
+  }
+
+  /* ---------- gaze registry ---------- */
+  function scanEyes(root, worldX, worldY) {
+    root.querySelectorAll('svg.eye-svg:not([data-reg])').forEach(svg => {
+      svg.setAttribute('data-reg', '1');
+      const globe = svg.querySelector('.eye-globe');
+      const pupil = svg.querySelector('.pupil-grp');
+      if (!globe) return;
+      const r = parseFloat(svg.dataset.r) || 40;
+      const card = root.classList && root.classList.contains('card') ? root : null;
+      const rec = {
+        svg, globe, pupil, r,
+        card,
+        ox: 0, oy: 0,
+        cx: worldX || 0, cy: worldY || 0,
+        next: performance.now() + 1500 + Math.random() * 9000
+      };
+      if (card) {
+        // offset of the svg inside its card, measured once
+        let ox = 0, oy = 0, n = svg;
+        while (n && n !== card) { ox += n.offsetLeft || 0; oy += n.offsetTop || 0; n = n.offsetParent; }
+        rec.ox = ox + r; rec.oy = oy + r;
+      }
+      eyes.push(rec);
+    });
+    const st = document.getElementById('stat-eyes');
+    if (st) st.textContent = eyes.length;
+  }
+
+  let frame = 0;
+  function gazeLoop() {
+    frame++;
+    if (frame % 2 === 0) {           // ~30fps is plenty for eyeballs
+      const mx = state.mouseX, my = state.mouseY;
+      const vw = window.innerWidth / state.scale, vh = window.innerHeight / state.scale;
+      const vx = -state.x / state.scale, vy = -state.y / state.scale;
+      for (let i = 0; i < eyes.length; i++) {
+        const e = eyes[i];
+        const cx = e.card ? (parseFloat(e.card.style.left) || 0) + e.ox : e.cx;
+        const cy = e.card ? (parseFloat(e.card.style.top) || 0) + e.oy : e.cy;
+        if (cx < vx - 400 || cx > vx + vw + 400 || cy < vy - 400 || cy > vy + vh + 400) continue;
+        const dx = mx - cx, dy = my - cy;
+        const d = Math.hypot(dx, dy) || 1;
+        const pull = Math.min(1, d / (e.r * 6));
+        const ux = dx / d, uy = dy / d;
+        e.globe.style.transform = `translate(${(ux * e.r * 0.09 * pull).toFixed(2)}px,${(uy * e.r * 0.09 * pull).toFixed(2)}px)`;
+        if (e.pupil) e.pupil.style.transform = `translate(${(ux * e.r * 0.055 * pull).toFixed(2)}px,${(uy * e.r * 0.055 * pull).toFixed(2)}px)`;
+      }
+    }
+    ocularTick();
+    requestAnimationFrame(gazeLoop);
+  }
+
+  /* ---------- blinking ---------- */
+  function blink(e, hold) {
+    e.svg.classList.add('blink');
+    setTimeout(() => e.svg.classList.remove('blink'), hold || 110);
+  }
+  setInterval(() => {
+    const now = performance.now();
+    for (const e of eyes) {
+      if (now > e.next) {
+        blink(e);
+        e.next = now + 2600 + Math.random() * 11000;
+      }
+    }
+  }, 260);
+
+  // every ~40s: the whole board blinks in a wave. it notices you.
+  setInterval(() => {
+    const cx = (-state.x / state.scale) + (window.innerWidth / state.scale) / 2;
+    const cy = (-state.y / state.scale) + (window.innerHeight / state.scale) / 2;
+    eyes.forEach(e => {
+      const ex = e.card ? (parseFloat(e.card.style.left) || 0) + e.ox : e.cx;
+      const ey = e.card ? (parseFloat(e.card.style.top) || 0) + e.oy : e.cy;
+      const d = Math.hypot(ex - cx, ey - cy);
+      setTimeout(() => blink(e, 130), d * 0.28);
+    });
+    showNotif('◉ CASCADE BLINK — THE BOARD LOOKED AWAY');
+  }, 40000);
+
+  /* ---------- macro iris: the board is inside an eye ---------- */
+  const MX = 1560, MY = 1480, MR = 2450;
+  let macroPupil, macroHalo, macroCollar, macroRim, macroWrap;
+
+  function buildMacroIris() {
+    const wrap = document.createElement('div');
+    wrap.className = 'macro-iris';
+    wrap.style.left = (MX - MR) + 'px';
+    wrap.style.top = (MY - MR) + 'px';
+    wrap.style.width = (MR * 2) + 'px';
+    wrap.style.height = (MR * 2) + 'px';
+
+    const rnd = rng(4242);
+    let fib = '';
+    for (let i = 0; i < 300; i++) {
+      const a = (i / 300) * Math.PI * 2 + rnd() * 0.02;
+      const r0 = MR * (0.30 + rnd() * 0.06);
+      const r1 = MR * (0.72 + rnd() * 0.27);
+      const bend = (rnd() - 0.5) * 0.14;
+      const col = ['#00ff9d', '#7b4fff', '#cc2233', '#00ccff'][Math.floor(rnd() * 4)];
+      fib += `<path d="M${(MR + Math.cos(a) * r0).toFixed(0)} ${(MR + Math.sin(a) * r0).toFixed(0)} Q${(MR + Math.cos(a + bend * .5) * (r0 + r1) / 2).toFixed(0)} ${(MR + Math.sin(a + bend * .5) * (r0 + r1) / 2).toFixed(0)} ${(MR + Math.cos(a + bend) * r1).toFixed(0)} ${(MR + Math.sin(a + bend) * r1).toFixed(0)}" stroke="${col}" stroke-width="${(2 + rnd() * 9).toFixed(1)}" fill="none" opacity="${(0.10 + rnd() * 0.42).toFixed(2)}"/>`;
+    }
+    let rings = '';
+    [0.34, 0.52, 0.68, 0.83, 0.94, 0.99].forEach((k, i) => {
+      rings += `<circle cx="${MR}" cy="${MR}" r="${MR * k}" fill="none" stroke="${['#00ff9d', '#7b4fff', '#cc2233'][i % 3]}" stroke-width="${i === 5 ? 46 : 5}" opacity="${i === 5 ? 0.45 : 0.22}" stroke-dasharray="${i % 2 ? '60 90' : 'none'}"/>`;
+    });
+
+    wrap.innerHTML = `
+<svg width="${MR * 2}" height="${MR * 2}" viewBox="0 0 ${MR * 2} ${MR * 2}">
+  <defs>
+    <radialGradient id="macro-i" cx="50%" cy="50%" r="50%">
+      <stop offset="18%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="45%" stop-color="#7b4fff" stop-opacity="0.10"/>
+      <stop offset="72%" stop-color="#00ff9d" stop-opacity="0.07"/>
+      <stop offset="96%" stop-color="#cc2233" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="macro-h" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#7b4fff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#7b4fff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="${MR}" cy="${MR}" r="${MR * 0.99}" fill="url(#macro-i)"/>
+  ${fib}
+  ${rings}
+  <circle id="macro-halo" cx="${MR}" cy="${MR}" r="${MR * 0.42}" fill="url(#macro-h)"/>
+  <circle id="macro-collar" cx="${MR}" cy="${MR}" r="${MR * 0.30}" fill="none" stroke="#00ff9d" stroke-width="14" opacity="0.35" stroke-dasharray="40 56"/>
+  <circle id="macro-pupil" cx="${MR}" cy="${MR}" r="${MR * 0.26}" fill="#000" opacity="0.62"/>
+  <circle id="macro-rim" cx="${MR}" cy="${MR}" r="${MR * 0.26}" fill="none" stroke="#9966ff" stroke-width="8" opacity="0.5"/>
+  <text x="${MR}" y="${MR - MR * 0.995 - 60}" text-anchor="middle" fill="#7b4fff" font-family="monospace" font-size="130" letter-spacing="70" opacity="0.4">THE CANVAS IS AN EYE</text>
+</svg>`;
+    canvas.appendChild(wrap);
+    macroPupil = wrap.querySelector('#macro-pupil');
+    macroHalo = wrap.querySelector('#macro-halo');
+    macroCollar = wrap.querySelector('#macro-collar');
+    macroRim = wrap.querySelector('#macro-rim');
+    macroWrap = wrap;
+  }
+
+  /* ---------- zoom-reactive dilation + eyelids ---------- */
+  const lidT = document.getElementById('lid-top');
+  const lidB = document.getElementById('lid-bottom');
+
+  function ocularTick() {
+    const t = performance.now() / 1000;
+    const k = Math.min(1, Math.max(0, (1.30 - state.scale) / 1.20));   // 0 = zoomed in, 1 = far out
+    if (macroPupil) {
+      const pr = MR * (0.13 + k * 0.24) + Math.sin(t * 0.55) * 14;
+      macroPupil.setAttribute('r', pr.toFixed(0));
+      macroRim.setAttribute('r', pr.toFixed(0));
+      macroHalo.setAttribute('r', (pr * 1.7).toFixed(0));
+      macroCollar.setAttribute('r', (pr * 1.22).toFixed(0));
+      macroWrap.style.opacity = (0.06 + k * k * 0.90).toFixed(2);   // the eye opens as you retreat
+    }
+    // lids: squint when you press your face to the glass, narrow when you fall away
+    const squint = Math.max(0, Math.min(16, (state.scale - 1.5) * 22));
+    const recede = Math.max(0, Math.min(13, (0.17 - state.scale) * 110));
+    const lid = squint + recede;
+    lidT.style.height = lid + 'vh';
+    lidB.style.height = lid * 0.8 + 'vh';
+    const dil = document.getElementById('stat-dil');
+    if (dil) dil.textContent = Math.round(k * 100);
+  }
+
+  /* ---------- ambient watchers in the void ---------- */
+  function buildBackgroundEyes() {
+    const rnd = rng(90210);
+    for (let i = 0; i < 42; i++) {
+      const a = rnd() * Math.PI * 2;
+      const rr = MR * (0.18 + rnd() * 0.86);
+      const x = MX + Math.cos(a) * rr;
+      const y = MY + Math.sin(a) * rr * 0.92;
+      const size = 46 + rnd() * 230;
+      const depth = rnd();
+      const d = document.createElement('div');
+      d.className = 'bg-eye ' + (depth > 0.72 ? 'near' : depth < 0.3 ? 'deep' : '');
+      d.style.left = (x - size / 2) + 'px';
+      d.style.top = (y - size / 2) + 'px';
+      d.innerHTML = iris({
+        size, seed: 700 + i * 31, pal: PAL_KEYS[Math.floor(rnd() * PAL_KEYS.length)],
+        fibers: size > 140 ? 40 : 20, pupil: 0.24 + rnd() * 0.22, veins: false
+      });
+      canvas.appendChild(d);
+      scanEyes(d, x, y);
+    }
+  }
+
+  /* ---------- card helpers ---------- */
+  function eyeCard(x, y, o) {
+    const w = o.w || 200;
+    const c = createCard('eye', x, y, `
+      <div class="img-card eye-card" style="width:${w}px">
+        <div class="img-placeholder eye-well" style="height:${o.h || w}px">
+          ${iris({ size: o.size || w - 20, seed: o.seed, pal: o.pal, pupil: o.pupil || 0.32, fibers: o.fibers || 64, drift: o.drift })}
+          ${o.sweep ? '<div class="scan-sweep"></div>' : ''}
+        </div>
+        <div class="img-caption" style="display:flex;justify-content:space-between">
+          <span>${o.caption}</span><span style="color:${o.meta_col || 'var(--text-dim)'}">${o.meta || ''}</span>
+        </div>
+      </div>`);
+    scanEyes(c);
+    return c;
+  }
+
+  /* ================================================================
+     ZONE: OCULUS — ocular systems
+     ================================================================ */
+  function buildOculus() {
+
+    createCard('section', 2100, 150, `
+      <div class="section-header" style="color:var(--violet-bright);background:var(--violet-faint);border:1px solid var(--violet);">
+        ◉ OCULUS — OCULAR SYSTEMS
+      </div>`);
+
+    /* --- annotated anatomy --- */
+    const A = createCard('img', 2100, 220, `
+      <div class="img-card" style="width:380px">
+        <div class="img-placeholder" style="height:280px;background:#080809">
+          <svg width="380" height="280" viewBox="0 0 380 280">
+            <defs>
+              <radialGradient id="an-glob" cx="55%" cy="45%" r="60%">
+                <stop offset="0%" stop-color="#14141c"/><stop offset="100%" stop-color="#050507"/>
+              </radialGradient>
+              <linearGradient id="an-ret" x1="0" x2="1">
+                <stop offset="0%" stop-color="#cc2233" stop-opacity="0.1"/>
+                <stop offset="100%" stop-color="#cc2233" stop-opacity="0.7"/>
+              </linearGradient>
+            </defs>
+            <circle cx="170" cy="140" r="96" fill="url(#an-glob)" stroke="#2a2a2e" stroke-width="1.5"/>
+            <path d="M 96 92 C 48 118, 48 162, 96 188" fill="none" stroke="#00ccff" stroke-width="2" opacity="0.75"/>
+            <path d="M 96 92 C 62 118, 62 162, 96 188" fill="none" stroke="#00ccff" stroke-width="0.7" opacity="0.35"/>
+            <path d="M 84 100 L 108 128 M 84 180 L 108 152" stroke="#7b4fff" stroke-width="3" opacity="0.8"/>
+            <ellipse cx="112" cy="140" rx="14" ry="36" fill="none" stroke="#00ff9d" stroke-width="1.4" opacity="0.8"/>
+            <ellipse cx="112" cy="140" rx="8" ry="24" fill="none" stroke="#00ff9d" stroke-width="0.6" opacity="0.4"/>
+            <path d="M 170 46 A 96 96 0 0 1 170 234" fill="none" stroke="url(#an-ret)" stroke-width="7" opacity="0.85"/>
+            <circle cx="266" cy="140" r="4" fill="#ffaa00"/>
+            <circle cx="266" cy="140" r="9" fill="none" stroke="#ffaa00" stroke-width="1" opacity="0.5"/>
+            <path d="M 250 168 C 290 186, 316 196, 356 200 M 254 176 C 292 196, 318 206, 356 212"
+                  fill="none" stroke="#00ff9d" stroke-width="2.5" opacity="0.6"/>
+            <path d="M 112 140 L 236 128" stroke="#ffaa00" stroke-width="0.5" opacity="0.35" stroke-dasharray="3 4"/>
+            ${[
+              ['CORNEA', 30, 86, 66, 100],
+              ['IRIS', 62, 214, 92, 190],
+              ['LENS', 116, 250, 116, 184],
+              ['VITREOUS', 176, 246, 176, 196],
+              ['RETINA', 300, 62, 254, 88],
+              ['FOVEA', 300, 116, 278, 136],
+              ['OPTIC N.', 300, 246, 320, 214],
+              ['SCLERA', 30, 48, 88, 72],
+            ].map(([t, tx, ty, lx, ly]) =>
+              `<text x="${tx}" y="${ty}" fill="#888890" font-family="monospace" font-size="8" letter-spacing="1.5">${t}</text>
+               <line x1="${tx + (tx > 190 ? 0 : 30)}" y1="${ty - 3}" x2="${lx}" y2="${ly}" stroke="#3a3a40" stroke-width="0.6"/>`
+            ).join('')}
+            <text x="190" y="270" text-anchor="middle" fill="#3a3a40" font-family="monospace" font-size="7" letter-spacing="3">FIG. I — THE APERTURE / SAGITTAL</text>
+          </svg>
+        </div>
+        <div class="img-caption">◈ OCULAR CROSS-SECTION — ANNOTATED</div>
+      </div>`);
+
+    /* --- iris study gallery: same function, six seeds --- */
+    const studies = [
+      ['phosphor', 'IRIS STUDY 01', '#00FF9D'],
+      ['crimson', 'IRIS STUDY 02', '#CC2233'],
+      ['violet', 'IRIS STUDY 03', '#7B4FFF'],
+      ['amber', 'IRIS STUDY 04', '#FFAA00'],
+      ['cyan', 'IRIS STUDY 05', '#00CCFF'],
+      ['bone', 'IRIS STUDY 06', '#E8E8EC'],
+    ];
+    studies.forEach(([pal, cap, hex], i) => {
+      eyeCard(2520 + (i % 3) * 160, 220 + Math.floor(i / 3) * 176, {
+        w: 148, h: 132, size: 128, pal, seed: 31 + i * 17,
+        pupil: 0.24 + i * 0.04, fibers: 72, drift: i % 2 === 0,
+        caption: cap, meta: hex, meta_col: PAL[pal][0]
+      });
+    });
+
+    /* --- biometric scan --- */
+    const scan = eyeCard(2100, 530, {
+      w: 200, h: 190, size: 180, pal: 'phosphor', seed: 909,
+      pupil: 0.30, fibers: 90, drift: true, sweep: true,
+      caption: 'IRIS SCAN · LIVE', meta: 'MATCH 99.7%', meta_col: 'var(--phosphor)'
+    });
+
+    createCard('code', 2330, 560, `
+      <div class="code-block" style="width:290px">
+        <div class="code-header">
+          <div class="code-dots"><div class="code-dot"></div><div class="code-dot"></div><div class="code-dot"></div></div>
+          <div class="code-title">iris_hash.rs</div>
+        </div>
+        <div class="code-body">
+<span class="cm">// Daugman: iris → 2048-bit code</span><br>
+<span class="kw">fn</span> <span class="fn">encode</span>(<span class="var">img</span>: &<span class="var">Gray</span>) -&gt; <span class="var">IrisCode</span> {<br>
+&nbsp; <span class="kw">let</span> p = <span class="fn">integro_diff</span>(<span class="var">img</span>); <span class="cm">// pupil</span><br>
+&nbsp; <span class="kw">let</span> l = <span class="fn">limbus</span>(<span class="var">img</span>, p);<br>
+&nbsp; <span class="kw">let</span> polar = <span class="fn">rubber_sheet</span>(p, l);<br>
+&nbsp; <span class="fn">gabor2d</span>(polar).<span class="fn">quantize</span>(<span class="num">2</span>)<br>
+}<br>
+<span class="cm">// hamming &lt; 0.32 → same eye</span><br>
+<span class="kw">const</span> <span class="var">THRESH</span> = <span class="num">0.32</span>;
+        </div>
+      </div>`);
+
+    createCard('img', 2650, 560, `
+      <div class="progress-card" style="width:260px">
+        <div class="progress-label">// PUPILLOMETRY — 60s TRACE</div>
+        <svg width="236" height="96" style="display:block">
+          <defs>
+            <linearGradient id="pup-g" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-color="#7b4fff" stop-opacity="0.5"/>
+              <stop offset="100%" stop-color="#7b4fff" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          ${[20, 40, 60, 80].map(y => `<line x1="0" y1="${y}" x2="236" y2="${y}" stroke="#2a2a2e" stroke-width="0.5"/>`).join('')}
+          ${(() => {
+        const r = rng(77); let d = 'M 0 60'; const pts = [];
+        for (let i = 0; i <= 60; i++) {
+          const x = i * 3.9;
+          const spike = (i > 18 && i < 26) ? -26 : (i > 40 && i < 46) ? -18 : 0;
+          const y = 60 + Math.sin(i * 0.35) * 5 + (r() - 0.5) * 4 + spike;
+          pts.push([x, y]); d += ` L ${x.toFixed(1)} ${y.toFixed(1)}`;
+        }
+        return `<path d="${d} L 236 96 L 0 96 Z" fill="url(#pup-g)"/>
+                    <path d="${d}" fill="none" stroke="#9966ff" stroke-width="1.4"/>`;
+      })()}
+          <line x1="76" y1="0" x2="76" y2="96" stroke="#ffaa00" stroke-width="0.8" stroke-dasharray="2 3" opacity="0.7"/>
+          <text x="80" y="12" fill="#ffaa00" font-family="monospace" font-size="7">STIMULUS</text>
+          <line x1="164" y1="0" x2="164" y2="96" stroke="#cc2233" stroke-width="0.8" stroke-dasharray="2 3" opacity="0.7"/>
+          <text x="168" y="12" fill="#cc2233" font-family="monospace" font-size="7">RECALL</text>
+        </svg>
+        <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--text-dim);margin-top:6px">
+          <span>2.9mm</span><span style="color:var(--violet-bright)">DILATION Δ +38%</span><span>7.1mm</span>
+        </div>
+      </div>`);
+
+    createCard('sticky', 2100, 760, `
+      <div class="sticky sticky-violet" style="width:230px">
+        <div class="sticky-label">◉ WHY EYES</div>
+        The eye is the only organ that <span style="color:var(--violet)">looks back</span>.<br><br>
+        Put one on a page and the page stops being a page — it becomes a room with someone in it.<br><br>
+        Pupil = negative space. Iris = signal. Sclera = silence around the signal.
+      </div>`);
+
+    /* ================================================================
+       ZONE: SACCADE — gaze economics
+       ================================================================ */
+    createCard('section', 2100, 980, `
+      <div class="section-header" style="color:var(--crimson-bright);background:var(--crimson-faint);border:1px solid var(--crimson);">
+        ⬡ SACCADE — ATTENTION TELEMETRY
+      </div>`);
+
+    createCard('img', 2100, 1050, `
+      <div class="img-card" style="width:300px">
+        <div class="img-placeholder" style="height:210px;background:#08080a">
+          <svg width="300" height="210" viewBox="0 0 300 210">
+            ${Array.from({ length: 10 }, (_, i) => `<line x1="0" y1="${i * 21}" x2="300" y2="${i * 21}" stroke="#1c1c1f" stroke-width="0.5"/><line x1="${i * 30}" y1="0" x2="${i * 30}" y2="210" stroke="#1c1c1f" stroke-width="0.5"/>`).join('')}
+            ${(() => {
+        const r = rng(1234);
+        const fx = [];
+        for (let i = 0; i < 11; i++) fx.push([30 + r() * 240, 24 + r() * 160, 6 + r() * 18]);
+        let out = '';
+        for (let i = 1; i < fx.length; i++) {
+          out += `<line x1="${fx[i - 1][0].toFixed(0)}" y1="${fx[i - 1][1].toFixed(0)}" x2="${fx[i][0].toFixed(0)}" y2="${fx[i][1].toFixed(0)}" stroke="#00ff9d" stroke-width="0.8" opacity="0.45"/>`;
+        }
+        fx.forEach(([x, y, r2], i) => {
+          out += `<circle cx="${x.toFixed(0)}" cy="${y.toFixed(0)}" r="${r2.toFixed(0)}" fill="#00ff9d" opacity="0.10"/>
+                          <circle cx="${x.toFixed(0)}" cy="${y.toFixed(0)}" r="${r2.toFixed(0)}" fill="none" stroke="#00ff9d" stroke-width="0.8" opacity="0.6"/>
+                          <text x="${x.toFixed(0)}" y="${(y + 3).toFixed(0)}" text-anchor="middle" fill="#00ff9d" font-family="monospace" font-size="8">${i + 1}</text>`;
+        });
+        return out;
+      })()}
+            <text x="150" y="202" text-anchor="middle" fill="#3a3a40" font-family="monospace" font-size="7" letter-spacing="3">SCANPATH — 11 FIXATIONS / 2.4s</text>
+          </svg>
+        </div>
+        <div class="img-caption">◈ GAZE PLOT — LANDING PAGE v7</div>
+      </div>`);
+
+    createCard('img', 2430, 1050, `
+      <div class="img-card" style="width:260px">
+        <div class="img-placeholder" style="height:210px;background:#08080a">
+          <svg width="260" height="210" viewBox="0 0 260 210">
+            <defs>
+              <filter id="hm-b"><feGaussianBlur stdDeviation="14"/></filter>
+              <radialGradient id="hm-hot"><stop offset="0%" stop-color="#ff2244"/><stop offset="55%" stop-color="#ffaa00" stop-opacity="0.5"/><stop offset="100%" stop-color="#00ff9d" stop-opacity="0"/></radialGradient>
+            </defs>
+            <g filter="url(#hm-b)" opacity="0.75">
+              ${[[70, 60, 44], [150, 52, 30], [96, 130, 36], [200, 150, 24], [40, 170, 18], [176, 96, 22]]
+        .map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="url(#hm-hot)"/>`).join('')}
+            </g>
+            <rect x="16" y="16" width="228" height="34" fill="none" stroke="#2a2a2e" stroke-dasharray="3 3"/>
+            <rect x="16" y="60" width="110" height="90" fill="none" stroke="#2a2a2e" stroke-dasharray="3 3"/>
+            <rect x="136" y="60" width="108" height="42" fill="none" stroke="#2a2a2e" stroke-dasharray="3 3"/>
+            <rect x="136" y="112" width="108" height="38" fill="none" stroke="#cc2233" stroke-dasharray="3 3"/>
+            <text x="140" y="126" fill="#cc2233" font-family="monospace" font-size="7">CTA · COLD</text>
+            <text x="130" y="200" text-anchor="middle" fill="#3a3a40" font-family="monospace" font-size="7" letter-spacing="2">ATTENTION HEATMAP — n=1,204</text>
+          </svg>
+        </div>
+        <div class="img-caption" style="color:var(--crimson)">⚠ CTA SITS IN A BLIND SPOT</div>
+      </div>`);
+
+    createCard('sticky', 2720, 1050, `
+      <div class="sticky sticky-red" style="width:250px">
+        <div class="sticky-label">👁 EYEBALLS ≠ ATTENTION</div>
+        Impressions are <span style="color:var(--crimson-bright)">served</span>. Attention is <span style="color:var(--crimson-bright)">taken</span>.<br><br>
+        ① Eyes hit faces first — always. Then text on the face's gaze line.<br>
+        ② An eye looking AT the CTA moves the CTA's fixation share up hard.<br>
+        ③ Time-to-first-fixation &lt; 0.6s or the fold is dead.<br>
+        ④ Motion beats color. Color beats size. Size beats copy.<br>
+        ⑤ Ship the thing that gets LOOKED at, not the thing that gets seen.
+      </div>`);
+
+    createCard('code', 2100, 1290, `
+      <div class="code-block" style="width:300px">
+        <div class="code-header">
+          <div class="code-dots"><div class="code-dot"></div><div class="code-dot"></div><div class="code-dot"></div></div>
+          <div class="code-title">saccade.js</div>
+        </div>
+        <div class="code-body">
+<span class="cm">// microsaccade jitter — eyes never rest</span><br>
+<span class="kw">const</span> <span class="var">DRIFT</span> = <span class="num">0.4</span>; <span class="cm">// deg/s</span><br>
+<span class="kw">const</span> <span class="var">TREMOR</span> = <span class="num">90</span>;  <span class="cm">// Hz</span><br>
+<span class="fn">function</span> <span class="var">gaze</span>(t, target) {<br>
+&nbsp; <span class="kw">const</span> j = <span class="fn">noise</span>(t * <span class="var">TREMOR</span>) * <span class="num">0.008</span>;<br>
+&nbsp; <span class="kw">const</span> d = <span class="fn">drift</span>(t) * <span class="var">DRIFT</span>;<br>
+&nbsp; <span class="kw">return</span> target + j + d;<br>
+}<br>
+<span class="cm">// stop the jitter → image fades (Troxler)</span>
+        </div>
+      </div>`);
+
+    createCard('graph', 2430, 1290, `
+      <div class="progress-card" style="width:260px">
+        <div class="progress-label">// TIME TO FIRST FIXATION</div>
+        <svg width="236" height="110" style="display:block">
+          ${[['HERO EYE', 0.28, '#00ff9d'], ['HEADLINE', 0.61, '#7b4fff'], ['PRICE', 1.34, '#ffaa00'], ['CTA', 2.90, '#cc2233'], ['FOOTER', 4.80, '#555558']]
+        .map(([l, v, c], i) => {
+          const w = Math.min(150, v * 31);
+          return `<text x="0" y="${16 + i * 22}" fill="#888890" font-family="monospace" font-size="8">${l}</text>
+                    <rect x="66" y="${8 + i * 22}" width="${w}" height="9" fill="${c}" opacity="0.75" rx="1"/>
+                    <text x="${70 + w}" y="${16 + i * 22}" fill="${c}" font-family="monospace" font-size="8">${v}s</text>`;
+        }).join('')}
+        </svg>
+      </div>`);
+
+    createCard('def', 2720, 1290, `
+      <div class="def-card" style="width:240px">
+        <div class="def-term" style="color:var(--crimson-bright)">FOVEATION</div>
+        <div class="def-type">noun · vision · rendering</div>
+        <div class="def-text">Only <span style="color:var(--crimson-bright)">2°</span> of your visual field is sharp. The rest is a hallucination stitched from memory and motion. You have never seen a whole page — only the ghost of one.</div>
+      </div>`);
+
+    /* ================================================================
+       ZONE: PHOSPHENE LEXICON
+       ================================================================ */
+    createCard('section', 2100, 1560, `
+      <div class="section-header" style="color:var(--phosphor);background:var(--phosphor-faint);border:1px solid var(--phosphor-dim);">
+        ⬡ PHOSPHENE LEXICON
+      </div>`);
+
+    const ocdefs = [
+      ['PHOSPHENE', 'noun · entoptics', 'Light seen without light — pressure on a closed eye, cosmic rays through an astronaut\'s retina. <span style="color:var(--phosphor)">The eye reporting itself</span> as if it were the world.', 'phosphor'],
+      ['TROXLER FADING', 'noun · perception', 'Fix your gaze long enough and the periphery <span style="color:var(--phosphor)">dissolves</span>. Anything that does not move ceases to exist. The nervous system is a change detector wearing a camera costume.', 'phosphor'],
+      ['TAPETUM LUCIDUM', 'noun · zoology', 'The mirror behind a predator\'s retina, giving photons a second pass. Why the fox glows at the edge of the road. <span style="color:var(--amber)">Eyeshine is a second chance at the same light.</span>', 'amber'],
+      ['ENTOPTIC', 'adj · phenomenology', 'Of images originating <span style="color:var(--violet)">inside the eye itself</span> — floaters, blue-field specks, the Purkinje tree of your own blood vessels. Ancient rock art is full of them.', 'violet'],
+      ['SCOTOMA', 'noun · neurology', 'A hole in the visual field the brain <span style="color:var(--crimson)">paints over</span> so smoothly you never notice the absence. Every one of us is already looking through a censored image.', 'crimson'],
+      ['PAREIDOLIA', 'noun · cognition', 'Faces in wood grain, eyes in the dark. The face-detector runs at a hair trigger because a false positive costs nothing and a false negative <span style="color:var(--crimson)">costs everything</span>.', 'crimson'],
+    ];
+    const colFor = { phosphor: 'var(--phosphor)', violet: 'var(--violet-bright)', crimson: 'var(--crimson-bright)', amber: 'var(--amber)' };
+    ocdefs.forEach(([term, type, text, pal], i) => {
+      createCard('def', 2100 + (i % 3) * 260, 1630 + Math.floor(i / 3) * 190, `
+        <div class="def-card" style="width:240px">
+          <div class="def-term" style="color:${colFor[pal]}">${term}</div>
+          <div class="def-type">${type}</div>
+          <div class="def-text">${text}</div>
+        </div>`);
+    });
+
+    /* ================================================================
+       THE WATCHER — centerpiece
+       ================================================================ */
+    const watcher = createCard('eye', 1420, 1700, `
+      <div class="watcher-card" style="width:430px">
+        <div class="watcher-title">◉ THE WATCHER</div>
+        <div class="eye-well" style="border-radius:6px;padding:8px;display:flex;justify-content:center;">
+          ${iris({ size: 380, pal: 'violet', seed: 1313, pupil: 0.30, fibers: 140, drift: true })}
+        </div>
+        <div class="watcher-meta">
+          <span>STATUS: <span style="color:var(--phosphor)">OPEN</span></span>
+          <span>SUBJECT: <span style="color:var(--crimson)">YOU</span></span>
+          <span>BLINK: <span style="color:var(--violet-bright)">RARE</span></span>
+        </div>
+      </div>`);
+    scanEyes(watcher);
+
+    /* ================================================================
+       ZONE: SCRYING — occult ocular sigils
+       ================================================================ */
+    createCard('section', 1560, 2500, `
+      <div class="section-header" style="color:var(--amber);background:var(--amber-faint);border:1px solid var(--amber);">
+        ⬡ SCRYING — SIGIL WORKS
+      </div>`);
+
+    // eye of providence
+    createCard('img', 1560, 2570, `
+      <div class="img-card" style="width:220px">
+        <div class="img-placeholder" style="height:200px;background:radial-gradient(circle at 50% 40%,#181026,#08080a 70%)">
+          <svg width="220" height="200" viewBox="0 0 220 200">
+            ${Array.from({ length: 24 }, (_, i) => {
+        const a = (i / 24) * Math.PI * 2;
+        return `<line x1="${110 + Math.cos(a) * 46}" y1="${86 + Math.sin(a) * 46}" x2="${110 + Math.cos(a) * (78 + (i % 2) * 22)}" y2="${86 + Math.sin(a) * (78 + (i % 2) * 22)}" stroke="#ffaa00" stroke-width="${i % 2 ? 0.5 : 1}" opacity="${i % 2 ? 0.2 : 0.45}"/>`;
+      }).join('')}
+            <path d="M 110 24 L 186 156 L 34 156 Z" fill="none" stroke="#ffaa00" stroke-width="1.4" opacity="0.85"/>
+            <path d="M 110 40 L 172 148 L 48 148 Z" fill="none" stroke="#ffaa00" stroke-width="0.5" opacity="0.35"/>
+            <path d="M 62 104 C 88 76, 132 76, 158 104 C 132 132, 88 132, 62 104 Z" fill="#0a0a0c" stroke="#ffaa00" stroke-width="1.2"/>
+            <circle cx="110" cy="104" r="17" fill="none" stroke="#ffaa00" stroke-width="1"/>
+            <circle cx="110" cy="104" r="8" fill="#ffaa00" opacity="0.9"/>
+            <circle cx="110" cy="104" r="3" fill="#0a0a0c"/>
+            <text x="110" y="182" text-anchor="middle" fill="#cc8800" font-family="monospace" font-size="7" letter-spacing="3">ANNUIT · COEPTIS</text>
+          </svg>
+        </div>
+        <div class="img-caption">SIGIL 07 — PROVIDENCE</div>
+      </div>`);
+
+    // recursive eye
+    createCard('img', 1810, 2570, `
+      <div class="img-card" style="width:220px">
+        <div class="img-placeholder" style="height:200px;background:#08080a">
+          <svg width="220" height="200" viewBox="0 0 220 200">
+            ${[86, 66, 50, 37, 27, 20, 14, 10, 7, 5].map((r, i) => `
+              <path d="M ${110 - r} 100 C ${110 - r * 0.55} ${100 - r * 0.78}, ${110 + r * 0.55} ${100 - r * 0.78}, ${110 + r} 100 C ${110 + r * 0.55} ${100 + r * 0.78}, ${110 - r * 0.55} ${100 + r * 0.78}, ${110 - r} 100 Z"
+                fill="none" stroke="${['#00ff9d', '#7b4fff', '#cc2233'][i % 3]}" stroke-width="${(1.4 - i * 0.1).toFixed(2)}" opacity="${(0.85 - i * 0.07).toFixed(2)}"/>`).join('')}
+            <circle cx="110" cy="100" r="3" fill="#00ff9d"/>
+            <text x="110" y="186" text-anchor="middle" fill="#3a3a40" font-family="monospace" font-size="7" letter-spacing="2">EYE WITHIN EYE — Ω</text>
+          </svg>
+        </div>
+        <div class="img-caption">SIGIL 08 — RECURSION</div>
+      </div>`);
+
+    // triple watcher
+    ['crimson', 'phosphor', 'cyan'].forEach((pal, i) => {
+      eyeCard(2060 + i * 130, 2570, {
+        w: 118, h: 106, size: 100, pal, seed: 500 + i * 61,
+        pupil: 0.20 + i * 0.08, fibers: 56, drift: true,
+        caption: ['PAST', 'PRESENT', 'ELSE'][i], meta: ['I', 'II', 'III'][i], meta_col: PAL[pal][0]
+      });
+    });
+
+    createCard('sticky', 2060, 2720, `
+      <div class="sticky sticky-amber" style="width:250px">
+        <div class="sticky-label">🜏 SCRYING PROTOCOL</div>
+        Not divination. <span style="color:var(--amber)">Attention discipline.</span><br><br>
+        Stare at one dark surface long enough and the periphery dissolves (see: TROXLER). What surfaces is not the future — it's your own pattern-completion, made visible.<br><br>
+        Use it as a compositional tool: build boards dense enough that the viewer starts finishing them for you.
+      </div>`);
+
+    /* ================================================================
+       ZONE: OPTIC SIGNAL — where the eye meets the audio lab
+       ================================================================ */
+    createCard('section', 300, 2500, `
+      <div class="section-header" style="color:var(--phosphor);background:var(--phosphor-faint);border:1px solid var(--phosphor-dim);">
+        ◈ OPTIC SIGNAL PATH
+      </div>`);
+
+    createCard('sticky', 300, 2570, `
+      <div class="sticky sticky-green" style="width:260px">
+        <div class="sticky-label">⚡ RETINAL SIGNAL CHAIN</div>
+        PHOTON → ROD/CONE → BIPOLAR → GANGLION → OPTIC N. → LGN → V1<br><br>
+        Same shape as the audio chain.<br>
+        Gain staging at every node.<br>
+        <span style="color:var(--phosphor)">The retina compresses before it transmits</span> — 126M receptors, 1M fibers out. 126:1 ratio. That IS a codec.
+      </div>`);
+
+    createCard('waveform', 580, 2570, `
+      <div class="waveform-card" style="width:300px">
+        <div style="font-size:8px;letter-spacing:2px;color:var(--text-dim);margin-bottom:8px">◈ OPTIC NERVE — SPIKE RASTER</div>
+        <svg width="280" height="80" style="display:block">
+          ${(() => {
+        const r = rng(31337); let o = '';
+        for (let row = 0; row < 5; row++) {
+          const y = 8 + row * 15;
+          for (let i = 0; i < 70; i++) {
+            if (r() > 0.62) {
+              const x = i * 4;
+              o += `<line x1="${x}" y1="${y}" x2="${x}" y2="${y + 9}" stroke="${['#00ff9d', '#00cc7a'][i % 2]}" stroke-width="1.2" opacity="${(0.35 + r() * 0.6).toFixed(2)}"/>`;
+            }
+          }
+        }
+        return o;
+      })()}
+          <line x1="120" y1="0" x2="120" y2="80" stroke="#cc2233" stroke-width="0.8" opacity="0.6" stroke-dasharray="2 3"/>
+        </svg>
+        <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--text-dim);margin-top:6px">
+          <span>0ms</span><span style="color:var(--crimson)">↑ STIMULUS ONSET</span><span>280ms</span>
+        </div>
+      </div>`);
+
+    createCard('code', 900, 2570, `
+      <div class="code-block" style="width:310px">
+        <div class="code-header">
+          <div class="code-dots"><div class="code-dot"></div><div class="code-dot"></div><div class="code-dot"></div></div>
+          <div class="code-title">optic_nerve.dsp</div>
+        </div>
+        <div class="code-body">
+<span class="cm">// luminance → frequency mapping</span><br>
+<span class="kw">lo</span> = <span class="num">40Hz</span>   <span class="cm">// pupil / void</span><br>
+<span class="kw">hi</span> = <span class="num">12kHz</span>  <span class="cm">// specular highlight</span><br>
+<span class="fn">scan</span>(<span class="var">iris</span>, <span class="var">theta</span>) {<br>
+&nbsp; <span class="kw">let</span> ring = <span class="fn">polar</span>(<span class="var">iris</span>, <span class="var">theta</span>);<br>
+&nbsp; <span class="kw">let</span> f = <span class="fn">lerp</span>(lo, hi, ring.<span class="var">lum</span>);<br>
+&nbsp; <span class="kw">return</span> <span class="fn">sine</span>(f) * ring.<span class="var">contrast</span>;<br>
+}<br>
+<span class="cm">// 1 revolution = 1 bar @ 60bpm</span>
+        </div>
+      </div>`);
+
+    createCard('def', 1240, 2570, `
+      <div class="def-card" style="width:240px">
+        <div class="def-term" style="color:var(--phosphor)">SACCADIC MASKING</div>
+        <div class="def-type">noun · neurology · editing</div>
+        <div class="def-text">During a saccade the brain <span style="color:var(--phosphor)">deletes the footage</span> — you go blind ~40 minutes a day and never notice. Perception is already a cut. All editing is imitation of the eye.</div>
+      </div>`);
+
+    /* --- eyes scattered INTO the existing zones, watching the work --- */
+    [
+      [1010, 250, 90, 'phosphor', 11],   // audio lab
+      [1940, 300, 74, 'crimson', 12],    // marketing
+      [1210, 880, 84, 'violet', 13],     // brand
+      [1690, 980, 70, 'cyan', 14],       // mindmap
+      [1080, 1450, 96, 'amber', 15],     // experiments
+      [980, 2060, 78, 'crimson', 16],    // planning
+      [140, 1180, 110, 'violet', 17],    // margin
+      [1900, 2180, 88, 'phosphor', 18],
+    ].forEach(([x, y, s, pal, seed]) => {
+      const c = createCard('eye', x, y, `
+        <div class="eye-well" style="border-radius:50%;padding:0;background:transparent!important">
+          ${iris({ size: s, pal, seed, pupil: 0.28, fibers: 44, drift: true })}
+        </div>`);
+      c.style.zIndex = 8;
+      scanEyes(c);
+    });
+
+    /* --- zone labels --- */
+    [
+      [2060, 130, 'OCULUS', '#7b4fff'],
+      [2060, 960, 'SACCADE', '#cc2233'],
+      [2060, 1540, 'PHOSPHENE', '#00ff9d'],
+      [1520, 2480, 'SCRYING', '#ffaa00'],
+      [260, 2480, 'OPTIC_PATH', '#00ff9d'],
+      [1380, 1680, 'WATCHER', '#7b4fff'],
+    ].forEach(([x, y, text, color]) => {
+      const l = document.createElement('div');
+      l.className = 'zone-label';
+      l.style.left = x + 'px';
+      l.style.top = y + 'px';
+      l.style.color = color;
+      l.textContent = '// ' + text;
+      canvas.appendChild(l);
+    });
+
+    /* --- optic nerve: connectors radiating out of THE WATCHER --- */
+    setTimeout(() => {
+      const wid = watcher.id;
+      const targets = state.cards.filter(c => c.id !== wid);
+      const ids = state.cards.map(c => c.id);
+      const picks = [0, 5, 9, 14, 20, 24, 30, 36, 42, 48, 54];
+      picks.forEach((i, n) => {
+        if (ids[i]) addConnection(wid, ids[i], ['#7b4fff', '#cc2233', '#00ff9d'][n % 3]);
+      });
+      addConnection(A.id, scan.id, '#00ccff');
+      updateMinimapCards();
+    }, 400);
+  }
+
+  /* ---------- cursor eye ---------- */
+  const gc = document.getElementById('gaze-cursor');
+  gc.innerHTML = iris({ size: 34, pal: 'phosphor', seed: 5, pupil: 0.36, fibers: 18, veins: false });
+  const gcSvg = gc.querySelector('.eye-svg');
+  const gcPupil = gc.querySelector('.pupil-grp');
+  document.addEventListener('mousemove', e => {
+    gc.style.transform = `translate(${e.clientX}px,${e.clientY}px)`;
+    // the cursor eye looks back at the centre of the board
+    const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+    const dx = cx - e.clientX, dy = cy - e.clientY, d = Math.hypot(dx, dy) || 1;
+    const k = Math.min(1, d / 300);
+    if (gcPupil) gcPupil.style.transform = `translate(${(dx / d) * 3 * k}px,${(dy / d) * 3 * k}px)`;
+  });
+  setInterval(() => {
+    gcSvg.classList.add('blink');
+    setTimeout(() => gcSvg.classList.remove('blink'), 110);
+  }, 5200);
+  document.addEventListener('mousedown', () => gc.classList.add('hide'));
+  document.addEventListener('mouseup', () => gc.classList.remove('hide'));
+
+  /* ---------- minimap fovea frame ---------- */
+  const mm = document.getElementById('minimap');
+  if (mm) {
+    const f = document.createElement('div');
+    f.id = 'minimap-eye';
+    f.innerHTML = `<svg width="160" height="100" viewBox="0 0 160 100">
+      <path d="M 4 50 C 34 8, 126 8, 156 50 C 126 92, 34 92, 4 50 Z" fill="none" stroke="#7b4fff" stroke-width="1" opacity="0.35"/>
+      <circle cx="80" cy="50" r="26" fill="none" stroke="#00ff9d" stroke-width="0.6" opacity="0.25"/>
+      <circle cx="80" cy="50" r="10" fill="none" stroke="#00ff9d" stroke-width="0.6" opacity="0.35"/>
+    </svg>`;
+    mm.appendChild(f);
+    const lab = document.createElement('div');
+    lab.id = 'minimap-label';
+    lab.textContent = 'FOVEA MAP';
+    mm.appendChild(lab);
+  }
+
+  /* ---------- boot iris ---------- */
+  const be = document.getElementById('boot-eye');
+  be.innerHTML = iris({ size: Math.min(340, window.innerWidth * 0.6), pal: 'phosphor', seed: 999, pupil: 0.30, fibers: 120, drift: true });
+  setTimeout(() => {
+    document.getElementById('boot-oculus').classList.add('gone');
+    setTimeout(() => document.getElementById('boot-oculus').remove(), 1400);
+  }, 2300);
+  document.getElementById('boot-oculus').addEventListener('click', function () {
+    this.classList.add('gone');
+  });
+
+  /* ---------- runtime eye spawner (toolbar) ---------- */
+  window.addEyeCard = function () {
+    const pal = PAL_KEYS[Math.floor(Math.random() * PAL_KEYS.length)];
+    const x = (-state.x / state.scale) + 220 + Math.random() * 380;
+    const y = (-state.y / state.scale) + 200 + Math.random() * 280;
+    eyeCard(x, y, {
+      w: 168, h: 150, size: 146, pal, seed: Math.floor(Math.random() * 9999),
+      pupil: 0.22 + Math.random() * 0.2, fibers: 70, drift: true,
+      caption: 'WITNESS ' + String(Math.floor(Math.random() * 900) + 100),
+      meta: PAL[pal][0].toUpperCase(), meta_col: PAL[pal][0]
+    });
+    showNotif('◉ A NEW EYE OPENS');
+  };
+
+  /* ---------- ignite ---------- */
+  buildMacroIris();
+  buildBackgroundEyes();
+  buildOculus();
+  gazeLoop();
+
+  setTimeout(() => showNotif('◉ ' + eyes.length + ' EYES OPEN · THEY FOLLOW THE CURSOR · ZOOM OUT TO SEE WHAT YOU ARE INSIDE OF'), 3000);
+
+})();
+</script>
+</body>
+</html>
