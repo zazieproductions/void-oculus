@@ -1,8 +1,34 @@
 # VOID//OCULUS
 
-**The canvas is an eye.**
+> The canvas is an eye.
 
-VOID//OCULUS is an experimental browser-based infinite canvas and visual knowledge board built as a single self-contained HTML file. It combines draggable notes, code blocks, definitions, diagrams, charts, linked nodes, animated particles, and a reactive ocular interface into a dark cyber-occult workspace.
+<p align="center">
+  <a href="https://zazieproductions.github.io/void-oculus/">
+    <img
+      src="void-oculus-preview.png"
+      alt="VOID OCULUS full spatial knowledge interface"
+      width="100%"
+    >
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://zazieproductions.github.io/void-oculus/">
+    <strong>◉ ENTER THE OCULUS ◉</strong>
+  </a>
+</p>
+
+**VOID//OCULUS** is an experimental browser-based infinite canvas and visual knowledge system combining draggable notes, diagrams, code fragments, linked nodes, animated particles, and a reactive ocular interface.
+
+## Interface detail
+
+<p align="center">
+  <img
+    src="void-oculus-detail.png"
+    alt="VOID OCULUS detailed view of linked cards, diagrams, and the central ocular interface"
+    width="88%"
+  >
+</p>
 
 ## Features
 
