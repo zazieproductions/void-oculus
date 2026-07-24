@@ -1,0 +1,74 @@
+name: 💡 Feature Request
+description: Suggest an idea for this project
+title: "[Feature] "
+labels: ["enhancement"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Feature Request
+
+        Great idea! Please fill out the information below to help us understand your feature request.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear and concise summary of the feature request.
+      placeholder: "Briefly describe the feature..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: |
+        Describe the problem this feature would solve.
+        What user need does it address?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: |
+        Describe the solution you'd like.
+        What should the feature do or look like?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: |
+        Describe any alternative solutions or features you've considered.
+        What are the tradeoffs?
+
+  - type: textarea
+    id: use-cases
+    attributes:
+      label: Use Cases
+      description: |
+        List 2-3 specific use cases where this feature would be valuable.
+        1. 
+        2. 
+        3. 
+
+  - type: textarea
+    id: mockups
+    attributes:
+      label: Mockups or Sketches
+      description: |
+        If applicable, provide mockups, sketches, or diagrams
+        to illustrate the proposed feature.
+      placeholder: "Drag and drop or paste images here..."
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Add any other context, screenshots, or references here.

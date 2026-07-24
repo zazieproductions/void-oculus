@@ -1,0 +1,30 @@
+# Build artifacts
+dist/
+build/
+*.min.js
+*.min.css
+
+# Development
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Logs
+*.log
+npm-debug.log*
+
+# Dependencies (if any future Node.js tooling is added)
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# OS
+.DS_Store

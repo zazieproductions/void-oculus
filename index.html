@@ -1084,9 +1084,65 @@
 </div>
 
 <script>
+/**
+ * @fileoverview VOID//OCULUS — Main Canvas Engine
+ * 
+ * This module implements the core state management, transform system,
+ * card management, connection rendering, and event handling for the
+ * infinite canvas interface.
+ * 
+ * @author Zazie Productions
+ * @version 1.0.0
+ * @license MIT
+ * 
+ * @see {@link https://github.com/zazieproductions/void-oculus}
+ */
+
+/**
+ * @typedef {Object} Card
+ * @property {string} id - Unique card identifier
+ * @property {string} type - Card type (sticky, code, def, eye)
+ * @property {number} x - X position in canvas coordinates
+ * @property {number} y - Y position in canvas coordinates
+ * @property {number} w - Card width (0 = auto)
+ * @property {number} h - Card height (0 = auto)
+ * @property {string} [content] - HTML content for the card
+ */
+
+/**
+ * @typedef {Object} Connection
+ * @property {string} from - Source card ID
+ * @property {string} to - Target card ID
+ * @property {string} color - Hex color for the connector line
+ * @property {string} id - Unique connection identifier
+ */
+
+/**
+ * @typedef {Object} CanvasState
+ * @property {number} x - Pan offset X (pixels)
+ * @property {number} y - Pan offset Y (pixels)
+ * @property {number} scale - Zoom scale factor (0.06 - 3.0)
+ * @property {string} tool - Active tool mode (select|pan|connect)
+ * @property {boolean} isDragging - Currently dragging a card
+ * @property {boolean} isPanning - Currently panning the canvas
+ * @property {HTMLElement|null} dragCard - Currently dragged card element
+ * @property {{x: number, y: number}} dragOffset - Drag offset from card origin
+ * @property {Set<string>} selectedCards - Set of selected card IDs
+ * @property {HTMLElement|null} contextCard - Card for context menu
+ * @property {{active: boolean, from: string|null}} connecting - Connection state
+ * @property {Connection[]} connections - All card connections
+ * @property {Card[]} cards - All cards on the canvas
+ * @property {number} nextId - Next auto-increment ID
+ * @property {number} mouseX - Current mouse X in canvas coords
+ * @property {number} mouseY - Current mouse Y in canvas coords
+ * @property {{x: number, y: number}|null} selectionStart - Selection box origin
+ */
+
 // ============================================
 // CANVAS STATE
 // ============================================
+
+/** @type {CanvasState} */
 let state = {
   x: -600, y: -300,
   scale: 0.72,
@@ -1113,12 +1169,25 @@ const selBox = document.getElementById('selection-box');
 // ============================================
 // TRANSFORM
 // ============================================
+
+/**
+ * Applies the current pan and zoom transform to the canvas element.
+ * Also updates the zoom status indicator and minimap.
+ * @returns {void}
+ */
 function applyTransform() {
   canvas.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`;
   document.getElementById('stat-zoom').textContent = Math.round(state.scale * 100);
   updateMinimap();
 }
 
+/**
+ * Zooms the canvas around a focal point.
+ * @param {number} factor - Zoom multiplier (e.g., 1.2 for 20% increase)
+ * @param {number} [cx] - Focal point X in viewport coords (default: center)
+ * @param {number} [cy] - Focal point Y in viewport coords (default: center)
+ * @returns {void}
+ */
 function zoom(factor, cx, cy) {
   const rect = wrapper.getBoundingClientRect();
   const px = cx ?? rect.width / 2;
@@ -1131,11 +1200,20 @@ function zoom(factor, cx, cy) {
   applyTransform();
 }
 
+/**
+ * Resets the canvas view to the default pan and zoom state.
+ * @returns {void}
+ */
 function resetView() {
   state.x = -600; state.y = -300; state.scale = 0.72;
   applyTransform();
 }
 
+/**
+ * Sets the active tool mode and updates the UI accordingly.
+ * @param {string} t - Tool name: 'select', 'pan', or 'connect'
+ * @returns {void}
+ */
 function setTool(t) {
   state.tool = t;
   document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
@@ -1151,6 +1229,16 @@ function setTool(t) {
 // ============================================
 // CARD MANAGEMENT
 // ============================================
+
+/**
+ * Creates a new card element on the canvas.
+ * @param {string} type - Card type: 'sticky', 'code', 'def', 'eye'
+ * @param {number} x - X position in canvas coordinates
+ * @param {number} y - Y position in canvas coordinates
+ * @param {string} content - HTML content for the card body
+ * @param {string} [extraClass=''] - Additional CSS classes
+ * @returns {HTMLElement} The created card DOM element
+ */
 function createCard(type, x, y, content, extraClass = '') {
   const id = 'card-' + (state.nextId++);
   const card = document.createElement('div');
@@ -1170,6 +1258,11 @@ function createCard(type, x, y, content, extraClass = '') {
   return card;
 }
 
+/**
+ * Attaches mouse event handlers to a card for selection, dragging, and linking.
+ * @param {HTMLElement} card - The card DOM element
+ * @returns {void}
+ */
 function setupCardInteraction(card) {
   card.addEventListener('mousedown', e => {
     if (e.button === 2) return;
@@ -1239,6 +1332,14 @@ function deleteCard(id) {
 // ============================================
 // CONNECTIONS
 // ============================================
+
+/**
+ * Creates a visual connection between two cards.
+ * @param {string} from - Source card ID
+ * @param {string} to - Target card ID
+ * @param {string} [color] - Hex color for the connector (random if omitted)
+ * @returns {void}
+ */
 function addConnection(from, to, color) {
   const colors = [
     '#00ff9d', '#cc2233', '#7b4fff', '#ffaa00', '#00ccff'
@@ -1249,6 +1350,11 @@ function addConnection(from, to, color) {
   renderConnectors();
 }
 
+/**
+ * Calculates the center point of a card in canvas coordinates.
+ * @param {string} id - Card element ID
+ * @returns {{x: number, y: number}|null} Center coordinates or null if not found
+ */
 function getCardCenter(id) {
   const el = document.getElementById(id);
   if (!el) return null;
@@ -1259,6 +1365,11 @@ function getCardCenter(id) {
   return { x: x + w / 2, y: y + h / 2 };
 }
 
+/**
+ * Renders all card connections as SVG bezier curves with glow effects.
+ * Uses cubic bezier paths with control points for smooth S-curves.
+ * @returns {void}
+ */
 function renderConnectors() {
   connSvg.innerHTML = '';
 
