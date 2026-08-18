@@ -152,17 +152,53 @@ const MY = 1480;  // Y position
 const MR = 2450;  // Radius
 ```
 
-## Offline Deployment
+## Session Persistence
 
-To run without internet dependencies:
+The board is written to `localStorage` under `void-oculus/session`.
 
-### 1. Download D3.js
-
-```bash
-curl -o d3.min.js https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js
+```javascript
+const STORAGE_KEY = 'void-oculus/session';   // where the snapshot lives
+const SCHEMA_VERSION = 1;                    // bump to invalidate old snapshots
+scheduleSave(600);                           // debounce for mutations (ms)
+scheduleSave(1500);                          // debounce for viewport changes (ms)
 ```
 
-### 2. Download Fonts
+Useful operations:
+
+```javascript
+saveSession();                                   // force an immediate write
+resetBoard();                                    // discard and rebuild the seeded board
+localStorage.removeItem('void-oculus/session');  // same, without the confirm
+JSON.parse(localStorage.getItem('void-oculus/session'));   // inspect
+```
+
+To disable persistence entirely, set `VO.storage = false` after load, or delete
+the `scheduleSave()` calls.
+
+### Editable Regions
+
+Double-click editing is scoped to a selector list. Add your own regions by
+extending it, or by tagging an element with `data-editable`:
+
+```javascript
+const EDITABLE_REGIONS = [
+  '.sticky', '.def-text', '.def-term', '.def-type', '.code-body', '.code-title',
+  '.img-caption', '.section-header', '.mindmap-node', '.progress-label',
+  '.watcher-title', '.tag', '.timeline-time', '[data-editable]',
+].join(',');
+```
+
+### Sanitiser Policy
+
+`ALLOWED_TAGS` governs which elements may re-enter the DOM on restore. Widen it
+only with elements that cannot execute or fetch, and add a matching case to
+`tests/smoke.mjs`.
+
+## Offline Deployment
+
+The application loads no external scripts, so only the webfonts need vendoring.
+
+### 1. Download Fonts
 
 ```bash
 # JetBrains Mono
@@ -175,11 +211,10 @@ curl -o fonts/SpaceGrotesk-Regular.woff2 https://fonts.gstatic.com/s/spacegrotes
 curl -o fonts/Orbitron-Regular.woff2 https://fonts.gstatic.com/s/orbitron/v31/yMJRMIlzdpvBhQQL_Qq7dy0.woff2
 ```
 
-### 3. Update References
+### 2. Update References
 
 ```html
-<!-- Replace CDN links with local paths -->
-<script src="./d3.min.js"></script>
+<!-- Replace the Google Fonts @import in <style> with local @font-face rules -->
 <link href="./fonts.css" rel="stylesheet">
 ```
 
@@ -200,18 +235,12 @@ curl -o fonts/Orbitron-Regular.woff2 https://fonts.gstatic.com/s/orbitron/v31/yM
 
 ```jsx
 function OcularCanvas() {
-  useEffect(() => {
-    // Load D3 if not already loaded
-    if (!window.d3) {
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js';
-      document.head.appendChild(script);
-    }
-  }, []);
-
+  // Nothing to bootstrap: the artifact is self-contained. Note that the board
+  // persists to the *iframe's* origin, so an embedded instance shares session
+  // storage with a top-level one served from the same origin.
   return (
-    <iframe 
-      src="/void-oculus/index.html" 
+    <iframe
+      src="/void-oculus/index.html"
       title="VOID OCULUS"
       style={{ width: '100%', height: '100vh', border: 'none' }}
     />
@@ -239,11 +268,12 @@ function addQuoteCard(x, y, quote, author) {
 
 ### Particle Count
 
-Adjust particle count for performance:
+Adjust particle count for performance. The proximity pass is O(n²), so this is
+the single most effective performance dial:
 
 ```javascript
-// In the particle initialization section
-const PARTICLE_COUNT = 150;  // Default: varies by viewport
+// initParticles()
+particles = Array.from({ length: 120 }, () => ({ /* … */ }));
 ```
 
 ### Connector Simplification

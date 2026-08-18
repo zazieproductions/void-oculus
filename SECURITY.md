@@ -32,27 +32,44 @@ We aim to respond to security reports within 48 hours and will work with reporte
 VOID//OCULUS is a purely client-side application with no server-side components:
 
 - **No data transmission**: User content is never sent to external servers
-- **No authentication**: No user accounts or sensitive data storage
+- **No authentication**: No user accounts, no credentials, no sensitive data
 - **No cookies**: The application does not use cookies
-- **No local storage persistence**: Refreshes clear all data
+- **Local persistence only**: Board state is written to this origin's `localStorage`
+  under the key `void-oculus/session`. It never leaves the browser, and
+  `⟲ RESET` (or `localStorage.removeItem('void-oculus/session')`) erases it.
+
+### Untrusted Input Boundary
+
+Storage is user-writable, so anything read back from it is treated as untrusted
+even though this application wrote it. Restored card markup is parsed inside an
+inert `<template>` — nothing executes, fetches or renders during inspection —
+and filtered by `sanitizeHTML()`:
+
+- **Tag allowlist**: elements outside the permitted set are removed entirely,
+  which excludes `script`, `iframe`, `object`, `embed`, `link` and `form`.
+- **Attribute deny rules**: `on*` handlers, `src` / `srcdoc` / `formaction`,
+  non-fragment `href` and `xlink:href`, and `style` values containing `url(`,
+  `expression(` or `javascript:`.
+
+**Review gate for contributors:** any new path that brings markup in from
+outside the repository — import, paste, drag-and-drop, URL fragment, query
+parameter — must route through `sanitizeHTML()` and must never assign an
+untrusted string to `innerHTML`. The smoke suite (`tests/smoke.mjs`) asserts
+each rule above, including that sanitisation itself executes nothing; extend it
+alongside any change to the policy.
 
 ### External Dependencies
 
-The application loads external resources from trusted CDNs:
+The application loads **no external scripts**. A CI job in
+`.github/workflows/verify.yml` fails the build if a `<script src=…>` is ever
+added to `index.html`.
 
-| Resource | CDN | Purpose |
-|----------|-----|---------|
-| D3.js 7.8.5 | cdnjs.cloudflare.com | Visualization library |
-| Google Fonts | fonts.googleapis.com | Typography |
+| Resource | Origin | Purpose |
+|----------|--------|---------|
+| Google Fonts | fonts.googleapis.com / fonts.gstatic.com | Typography (optional; the layout degrades gracefully) |
 
-Subresource Integrity (SRI) is recommended for production deployments. To enable SRI:
-
-1. Download the D3.js file locally
-2. Calculate the SHA-384 hash: `openssl dgst -sha384 -binary d3.min.js | openssl base64 -A`
-3. Add the integrity attribute to the script tag:
-   ```html
-   <script src="d3.min.js" integrity="sha384-HASH_FROM_ABOVE" crossorigin="anonymous"></script>
-   ```
+Vendoring the three webfonts removes the last third-party origin and makes the
+artifact fully self-contained.
 
 ### Content Security Policy
 

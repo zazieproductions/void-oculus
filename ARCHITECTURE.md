@@ -32,13 +32,14 @@ VOID//OCULUS is a single-page application (SPA) that runs entirely in the browse
 
 ### Layer 0: Particle Canvas
 
-The `#particles-bg` canvas element runs a D3.js force simulation to render ambient floating particles. These particles:
+The `#particles-bg` canvas element runs a hand-written 2D particle field — no
+library is involved. 120 particles drift with randomized velocities, wrap at the
+viewport edges, and are webbed together with proximity lines below 80px.
 
-- Drift slowly with randomized velocities
-- React subtly to mouse proximity
-- Provide atmospheric depth without impacting card interaction
-
-**Performance note:** Particle count is capped to maintain 60fps on mid-range hardware.
+**Performance note:** The particle count is fixed at 120, which bounds the
+O(n²) proximity pass at 7,140 comparisons per frame. Under
+`prefers-reduced-motion` the field paints one static frame and stops its
+animation loop entirely.
 
 ### Layer 1: Grid Canvas
 

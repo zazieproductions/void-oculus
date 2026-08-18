@@ -1,0 +1,84 @@
+# Verification gate for pull requests and pushes to main.
+# Deployment lives in static.yml and is kept separate on purpose: a failing
+# check must never be able to half-apply a production deploy.
+
+name: Verify
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Smoke suite (jsdom)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # jsdom is a test-only dependency and is deliberately not committed as a
+      # manifest: the application ships with no package.json and no lockfile.
+      - name: Install test dependency
+        run: npm install --no-save jsdom@25
+
+      - name: Run smoke suite
+        run: node tests/smoke.mjs
+
+  syntax:
+    name: Inline script parse check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Catches syntax errors in either inline engine without a browser.
+      - name: Parse both inline script blocks
+        run: |
+          node -e '
+            const fs = require("fs");
+            const html = fs.readFileSync("index.html", "utf8");
+            const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+            if (blocks.length !== 2) {
+              console.error(`expected 2 inline script blocks, found ${blocks.length}`);
+              process.exit(1);
+            }
+            blocks.forEach(([, body], i) => {
+              try {
+                new Function(body);
+                console.log(`block ${i}: OK (${body.split("\n").length} lines)`);
+              } catch (err) {
+                console.error(`block ${i}: ${err.message}`);
+                process.exit(1);
+              }
+            });
+          '
+
+      - name: Assert no runtime dependencies are referenced
+        run: |
+          if grep -qE '<script[^>]+src=' index.html; then
+            echo "index.html loads an external script; the zero-dependency invariant is broken."
+            grep -nE '<script[^>]+src=' index.html
+            exit 1
+          fi
+          echo "No external scripts referenced."

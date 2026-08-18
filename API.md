@@ -75,17 +75,20 @@ setTool('connect')  // Enable card linking mode
 
 ## Card Operations
 
-### `createCard(type, x, y, content, extraClass)`
+### `createCard(type, x, y, content, extraClass, opts)`
 
 Creates a new card element on the canvas.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `type` | string | Card type: `'sticky'`, `'code'`, `'def'`, `'eye'` |
+| `type` | string | Card type: `'sticky'`, `'code'`, `'def'`, `'eye'`, … |
 | `x` | number | X position in canvas coordinates |
 | `y` | number | Y position in canvas coordinates |
 | `content` | string | HTML content for the card |
-| `extraClass` | string | Additional CSS classes (optional) |
+| `extraClass` | string | Additional CSS classes applied to the card root (optional) |
+| `opts.id` | string | Reuse a persisted identifier instead of allocating one (restore path) |
+| `opts.z` | string\|number | Restore an explicit `z-index` |
+| `opts.silent` | boolean | Suppress per-card save and measure churn during bulk rehydration |
 
 **Returns:** `HTMLElement` — The created card DOM element
 
@@ -285,11 +288,106 @@ const eyeSvg = iris({
 
 ### `scanEyes(root, worldX, worldY)`
 
-Scans for eye elements and registers them for gaze tracking.
+Scans for eye elements and registers them for gaze tracking. Idempotent —
+already-registered eyes are marked with `data-reg` and skipped, so re-scanning a
+subtree cannot double-register or double the animation cost.
 
 ```javascript
 scanEyes(canvasElement, 1000, 800)
 ```
+
+> `iris()` and `scanEyes()` are exported from the ocular engine onto `window`
+> alongside `addEyeCard()`. Generating an iris only produces markup; a card is
+> not gaze-tracked until it has been scanned.
+
+## Search
+
+### `applySearch(query)`
+
+Filters the board by substring match against each card's rendered text. Matching
+cards receive `.search-hit`; the rest receive `.search-dim` and become
+click-through. An empty query restores everything.
+
+**Returns:** `number` — count of matching cards
+
+```javascript
+applySearch('saccade')   // → 3
+```
+
+### `clearSearch()`
+
+Clears the input and restores full visibility.
+
+### `fitToMatches()`
+
+Frames the viewport on the current match set with a 120px world-space margin.
+No-op when nothing matches.
+
+## Selection and Editing
+
+### `commitMarquee()`
+
+Selects every card whose axis-aligned bounding box intersects the active marquee
+rectangle. Rectangles under 4px on both axes are treated as clicks and ignored.
+Called automatically on `pointerup`.
+
+### `beginEdit(card, event)`
+
+Puts the nearest editable region of `card` into `contenteditable` mode, placing
+the caret at the event's coordinates. Commits on blur or `Escape`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `card` | HTMLElement | The card to edit |
+| `event` | MouseEvent | Originating double-click, used for caret placement |
+
+## Session Persistence
+
+### `saveSession()`
+
+Serialises the board to `localStorage` immediately. Normally reached through
+`scheduleSave()`.
+
+### `scheduleSave(delay)`
+
+Coalesces a session write. Every mutation calls this; the write lands once the
+board has been quiet for `delay` ms (default `600`).
+
+### `restoreSession()`
+
+Rebuilds the board from a stored snapshot. All-or-nothing: any structural
+problem tears down the partial board and returns `false`.
+
+**Returns:** `boolean` — true when the board came from storage
+
+### `resetBoard()`
+
+Discards the saved session and reloads, rebuilding the seeded board.
+
+### `sanitizeHTML(html)`
+
+Filters untrusted markup through a tag allowlist and attribute deny policy.
+Parsing occurs inside an inert `<template>`, so nothing executes.
+
+**Returns:** `string` — markup safe to assign to `innerHTML`
+
+```javascript
+sanitizeHTML('<img src=x onerror=alert(1)><b>ok</b>')   // → '<b>ok</b>'
+```
+
+## Runtime Namespace
+
+### `VO`
+
+The only shared mutable surface between the canvas engine and the ocular engine.
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `VO.restored` | boolean | Board came from storage rather than the seeded builders |
+| `VO.pendingEyes` | HTMLElement[] | Restored cards awaiting iris rehydration and gaze registration |
+| `VO.reducedMotion` | boolean | Mirrors `prefers-reduced-motion` |
+| `VO.storage` | boolean | `localStorage` is writable |
+| `VO.booting` | boolean | Suppresses session writes during startup |
 
 ## Notifications
 

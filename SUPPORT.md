@@ -15,14 +15,30 @@
 
 1. Ensure you're using a modern browser (Chrome 90+, Firefox 88+, Safari 14+, Edge 90+)
 2. Check that JavaScript is enabled
-3. Verify internet connection (required for fonts and D3.js CDN)
-4. Check browser console for errors: `F12` or `Cmd+Option+I`
+3. Check browser console for errors: `F12` or `Cmd+Option+I`
+
+No internet connection is required — the application loads no external scripts.
+Without a connection only the webfonts fail to resolve, and the layout falls
+back to system typefaces.
 
 #### Eyes not animating
 
-1. Verify WebGL is supported (for particle effects)
+1. Check whether your OS has "reduce motion" enabled — the interface honours it
+   deliberately, stopping blinking, drift and the particle field while keeping
+   pointer-driven gaze at reduced travel
 2. Check that the browser isn't in battery-saver mode
 3. Try refreshing the page
+
+#### An old board keeps coming back
+
+The session is restored from `localStorage` on every load. Use `⟲ RESET` in the
+toolbar, or run `localStorage.removeItem('void-oculus/session')` in the console.
+
+#### "SESSION NOT SAVED" appears
+
+Storage is unavailable — usually private browsing, a zero quota, or a `file://`
+policy. The board stays fully usable; changes just will not survive a reload.
+Serving over `http://localhost` resolves it.
 
 #### Can't connect cards
 

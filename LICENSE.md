@@ -26,11 +26,8 @@ SOFTWARE.
 
 This software includes the following third-party components:
 
-### D3.js v7.8.5
-- **License**: ISC License
-- **Copyright**: 2010-2023 Mike Bostock
-- **URL**: https://d3js.org/
-- **Usage**: Force simulation, SVG path generation
+The application bundles no third-party code. The typefaces below are loaded at
+runtime from Google Fonts and are licensed separately.
 
 ### JetBrains Mono
 - **License**: OFL-1.1 License

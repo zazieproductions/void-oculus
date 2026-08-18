@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VOID//OCULUS — The Canvas Is An Eye</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Space+Grotesk:wght@300..700&family=Orbitron:wght@400..900&display=swap');
 
@@ -53,6 +52,7 @@
     position: fixed;
     inset: 0;
     overflow: hidden;
+    touch-action: none;          /* we own all panning and pinch gestures */
   }
 
   #particles-bg {
@@ -201,6 +201,27 @@
 
   .card:hover { z-index: 100; }
   .card.dragging { cursor: grabbing; z-index: 999; transform: rotate(1deg) scale(1.02); }
+
+  /* IN-PLACE EDITING */
+  .card.editing { cursor: text; z-index: 900; }
+  .card [contenteditable="true"] {
+    outline: 1px dashed var(--phosphor-dim);
+    outline-offset: 3px;
+    border-radius: 3px;
+    user-select: text;
+    cursor: text;
+  }
+
+  /* SEARCH RESULT STATES */
+  .card.search-dim {
+    opacity: 0.09;
+    filter: grayscale(0.7);
+    pointer-events: none;
+  }
+  .card.search-hit {
+    box-shadow: 0 0 0 2px var(--amber), 0 0 34px var(--amber-faint);
+  }
+  .card { transition: box-shadow 0.2s, transform 0.1s, opacity 0.2s, filter 0.2s; }
 
   .card-inner {
     border-radius: 8px;
@@ -646,6 +667,17 @@
 
   #search-bar input::placeholder { color: var(--text-dim); }
   #search-bar .search-icon { color: var(--text-dim); font-size: 11px; }
+  #search-bar.active { border-color: var(--amber); box-shadow: 0 0 26px var(--amber-faint); }
+  #search-bar.active .search-icon { color: var(--amber); }
+  #search-count {
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    min-width: 30px;
+    text-align: right;
+  }
 
   /* NOTIFICATION */
   .notif {
@@ -995,6 +1027,34 @@
     .tool-btn span { display: none; }
     #search-bar { display: none; }
   }
+
+  /* ============================================================
+     REDUCED MOTION
+     Autonomous motion is removed entirely: fiber drift, pupil pulse,
+     iris breath, scan line, sweeps, marquees, boot flicker, glows.
+     Pointer-driven gaze is retained but damped in the gaze loop —
+     it is a direct response to user input, not ambient animation.
+     ============================================================ */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 1ms !important;
+    }
+    .scan-line,
+    .macro-iris,
+    .glow-orb,
+    .scan-sweep,
+    .eye-svg .fibers,
+    .eye-svg .pupil-core,
+    .marquee-inner,
+    #toolbar .logo-eye,
+    .progress-fill::after { animation: none !important; }
+    .scan-line, .scan-sweep { display: none !important; }
+    .eye-svg .eye-globe,
+    .eye-svg .pupil-grp { transition: none !important; }
+    #boot-oculus { animation: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -1026,14 +1086,17 @@
   <button class="tool-btn" onclick="addDefCard()">⌖ <span>DEF</span></button>
   <button class="tool-btn" onclick="addEyeCard()" style="color:var(--violet-bright)">◉ <span>EYE</span></button>
   <div class="tool-sep"></div>
-  <button class="tool-btn" onclick="resetView()">⊡ <span>FIT</span></button>
-  <button class="tool-btn" onclick="clearSelected()">✕ <span>DESELECT</span></button>
+  <button class="tool-btn" onclick="resetView()" title="Fit view to the default framing">⊡ <span>FIT</span></button>
+  <button class="tool-btn" onclick="clearSelected()" title="Clear the current selection">✕ <span>DESELECT</span></button>
+  <button class="tool-btn" onclick="resetBoard()" title="Discard the saved session and rebuild the seeded board">⟲ <span>RESET</span></button>
 </div>
 
 <!-- SEARCH -->
 <div id="search-bar">
   <span class="search-icon">⌕</span>
-  <input type="text" placeholder="search canvas..." id="search-input">
+  <input type="text" placeholder="search canvas..." id="search-input"
+         autocomplete="off" spellcheck="false" aria-label="Search cards on the canvas">
+  <span id="search-count" aria-live="polite"></span>
 </div>
 
 <!-- ZOOM CONTROLS -->
@@ -1139,6 +1202,41 @@
  */
 
 // ============================================
+// RUNTIME ENVIRONMENT
+// ============================================
+
+/**
+ * Cross-engine runtime namespace. The canvas engine and the ocular engine are
+ * separate script blocks with no shared scope; this object is their only
+ * shared mutable surface, kept deliberately small and explicitly documented.
+ *
+ * @namespace VO
+ * @property {boolean} restored   - True when the board came from a saved session
+ *                                  rather than the seeded builders.
+ * @property {HTMLElement[]} pendingEyes - Restored cards awaiting iris rehydration
+ *                                  and gaze registration by the ocular engine.
+ * @property {boolean} reducedMotion - Mirrors prefers-reduced-motion.
+ * @property {boolean} storage    - True when localStorage is writable.
+ * @property {boolean} booting    - Suppresses session writes during startup.
+ */
+const VO = (window.VO = {
+  restored: false,
+  pendingEyes: [],
+  reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  storage: (() => {
+    try {
+      const probe = '__vo_probe__';
+      localStorage.setItem(probe, '1');
+      localStorage.removeItem(probe);
+      return true;
+    } catch (_) {
+      return false;   // Safari private mode, file:// under some policies, quota 0
+    }
+  })(),
+  booting: true,
+});
+
+// ============================================
 // CANVAS STATE
 // ============================================
 
@@ -1159,6 +1257,9 @@ let state = {
   nextId: 0,
   mouseX: 0, mouseY: 0,
   selectionStart: null,
+  selectionAdditive: false,
+  dragGroup: [],
+  nextConnId: 0,
 };
 
 const canvas = document.getElementById('canvas');
@@ -1179,6 +1280,7 @@ function applyTransform() {
   canvas.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`;
   document.getElementById('stat-zoom').textContent = Math.round(state.scale * 100);
   updateMinimap();
+  scheduleSave(1500);   // coalesced: only lands ~1.5s after the gesture settles
 }
 
 /**
@@ -1232,40 +1334,51 @@ function setTool(t) {
 
 /**
  * Creates a new card element on the canvas.
- * @param {string} type - Card type: 'sticky', 'code', 'def', 'eye'
+ * @param {string} type - Card type: 'sticky', 'code', 'def', 'eye', …
  * @param {number} x - X position in canvas coordinates
  * @param {number} y - Y position in canvas coordinates
  * @param {string} content - HTML content for the card body
- * @param {string} [extraClass=''] - Additional CSS classes
+ * @param {string} [extraClass=''] - Additional CSS classes applied to the card root
+ * @param {{id?: string, z?: string|number, silent?: boolean}} [opts] - Restore hooks:
+ *        `id` reuses a persisted identifier, `z` restores an explicit layer, and
+ *        `silent` suppresses per-card save/measure churn during bulk rehydration.
  * @returns {HTMLElement} The created card DOM element
  */
-function createCard(type, x, y, content, extraClass = '') {
-  const id = 'card-' + (state.nextId++);
+function createCard(type, x, y, content, extraClass = '', opts = {}) {
+  const id = opts.id || ('card-' + (state.nextId++));
   const card = document.createElement('div');
-  card.className = 'card';
+  card.className = extraClass ? 'card ' + extraClass : 'card';
   card.id = id;
   card.style.left = x + 'px';
   card.style.top = y + 'px';
+  if (opts.z !== undefined && opts.z !== '') card.style.zIndex = opts.z;
   card.innerHTML = content;
   card.dataset.type = type;
   canvas.appendChild(card);
 
-  state.cards.push({ id, x, y, w: 0, h: 0 });
+  state.cards.push({ id, type, x, y, w: 0, h: 0 });
 
   setupCardInteraction(card);
   document.getElementById('stat-cards').textContent = state.cards.length;
-  setTimeout(() => updateMinimapCards(), 100);
+  if (!opts.silent) {
+    setTimeout(() => updateMinimapCards(), 100);
+    scheduleSave();
+  }
   return card;
 }
 
 /**
- * Attaches mouse event handlers to a card for selection, dragging, and linking.
+ * Attaches pointer handlers to a card for selection, dragging, linking and
+ * in-place editing. Pointer Events are used throughout so mouse, touch and pen
+ * share one code path; multi-touch is deferred to the pinch handler.
  * @param {HTMLElement} card - The card DOM element
  * @returns {void}
  */
 function setupCardInteraction(card) {
-  card.addEventListener('mousedown', e => {
+  card.addEventListener('pointerdown', e => {
     if (e.button === 2) return;
+    if (e.pointerType !== 'mouse' && activePointers.size > 1) return;   // pinch owns this
+    if (e.target.closest('[contenteditable="true"]')) return;           // typing, not dragging
     e.stopPropagation();
 
     if (state.tool === 'connect') {
@@ -1296,7 +1409,29 @@ function setupCardInteraction(card) {
     const cardX = parseFloat(card.style.left) || 0;
     const cardY = parseFloat(card.style.top) || 0;
     state.dragOffset = { x: canvasX - cardX, y: canvasY - cardY };
+
+    // Capture the rest of the selection as rigid offsets from the grabbed card,
+    // so the whole group translates as one body with no per-frame recomputation.
+    state.dragGroup = [];
+    state.selectedCards.forEach(id => {
+      if (id === card.id) return;
+      const el = document.getElementById(id);
+      if (!el) return;
+      state.dragGroup.push({
+        el,
+        rec: state.cards.find(c => c.id === id) || null,
+        dx: (parseFloat(el.style.left) || 0) - cardX,
+        dy: (parseFloat(el.style.top) || 0) - cardY,
+      });
+      el.classList.add('dragging');
+    });
+
     card.classList.add('dragging');
+  });
+
+  card.addEventListener('dblclick', e => {
+    if (state.tool === 'connect') return;
+    beginEdit(card, e);
   });
 
   card.addEventListener('contextmenu', e => {
@@ -1304,6 +1439,87 @@ function setupCardInteraction(card) {
     e.stopPropagation();
     showContextMenu(e.clientX, e.clientY, card.id);
   });
+}
+
+/**
+ * Selectors that identify text-bearing regions inside a card. Editing is scoped
+ * to these rather than the card root so structural markup (window chrome, SVG,
+ * progress bars) can never be destroyed by a stray keystroke.
+ * @constant {string}
+ */
+const EDITABLE_REGIONS = [
+  '.sticky', '.def-text', '.def-term', '.def-type', '.code-body', '.code-title',
+  '.img-caption', '.section-header', '.mindmap-node', '.progress-label',
+  '.watcher-title', '.tag', '.timeline-time', '[data-editable]',
+].join(',');
+
+/**
+ * Puts the nearest editable region of a card into contenteditable mode.
+ * Commits on blur or Escape; persists and reflows connectors on commit.
+ * @param {HTMLElement} card - The card that was double-clicked
+ * @param {MouseEvent} e - The originating double-click
+ * @returns {void}
+ */
+function beginEdit(card, e) {
+  const target = e && e.target;
+  const region = (target instanceof Element ? target.closest(EDITABLE_REGIONS) : null)
+    || card.querySelector(EDITABLE_REGIONS);
+  if (!region || region.getAttribute('contenteditable') === 'true') return;
+
+  region.setAttribute('contenteditable', 'true');
+  region.setAttribute('spellcheck', 'false');
+  card.classList.add('editing');
+  region.focus();
+  placeCaretAt(region, e);
+
+  const commit = () => {
+    region.removeAttribute('contenteditable');
+    region.removeAttribute('spellcheck');
+    card.classList.remove('editing');
+    region.removeEventListener('keydown', onKey);
+    updateMinimapCards();
+    renderConnectors();
+    scheduleSave(200);
+  };
+  const onKey = ev => {
+    ev.stopPropagation();                       // never reaches the global shortcuts
+    if (ev.key === 'Escape') { ev.preventDefault(); region.blur(); }
+  };
+
+  region.addEventListener('keydown', onKey);
+  region.addEventListener('blur', commit, { once: true });
+}
+
+/**
+ * Drops the caret where the user actually clicked rather than at the start of
+ * the region. `caretPositionFromPoint` is the standard; `caretRangeFromPoint`
+ * is the WebKit/Blink spelling. Both are optional — without either, focus alone
+ * is a correct if less precise outcome.
+ * @param {HTMLElement} region - The now-editable element
+ * @param {MouseEvent} e - Event carrying viewport coordinates
+ * @returns {void}
+ */
+function placeCaretAt(region, e) {
+  if (!e || typeof e.clientX !== 'number') return;
+  const sel = window.getSelection && window.getSelection();
+  if (!sel) return;
+
+  let range = null;
+  if (document.caretPositionFromPoint) {
+    const pos = document.caretPositionFromPoint(e.clientX, e.clientY);
+    if (pos && region.contains(pos.offsetNode)) {
+      range = document.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+    }
+  } else if (document.caretRangeFromPoint) {
+    const r = document.caretRangeFromPoint(e.clientX, e.clientY);
+    if (r && region.contains(r.startContainer)) range = r;
+  }
+  if (!range) return;
+
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
 }
 
 function selectCard(card) {
@@ -1325,8 +1541,10 @@ function deleteCard(id) {
   state.connections = state.connections.filter(c => c.from !== id && c.to !== id);
   state.selectedCards.delete(id);
   document.getElementById('stat-cards').textContent = state.cards.length;
+  document.getElementById('stat-links').textContent = state.connections.length;
   renderConnectors();
   updateMinimap();
+  scheduleSave();
 }
 
 // ============================================
@@ -1345,9 +1563,10 @@ function addConnection(from, to, color) {
     '#00ff9d', '#cc2233', '#7b4fff', '#ffaa00', '#00ccff'
   ];
   const c = color || colors[Math.floor(Math.random() * colors.length)];
-  state.connections.push({ from, to, color: c, id: 'conn-' + Date.now() });
+  state.connections.push({ from, to, color: c, id: 'conn-' + (state.nextConnId++) });
   document.getElementById('stat-links').textContent = state.connections.length;
   renderConnectors();
+  scheduleSave();
 }
 
 /**
@@ -1373,26 +1592,9 @@ function getCardCenter(id) {
 function renderConnectors() {
   connSvg.innerHTML = '';
 
-  // Defs for glow
-  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-  const colors = ['#00ff9d', '#cc2233', '#7b4fff', '#ffaa00', '#00ccff'];
-  colors.forEach((col, i) => {
-    const filter = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
-    filter.setAttribute('id', 'glow-' + i);
-    const feBlur = document.createElementNS('http://www.w3.org/2000/svg', 'feGaussianBlur');
-    feBlur.setAttribute('stdDeviation', '3');
-    feBlur.setAttribute('result', 'blur');
-    const feMerge = document.createElementNS('http://www.w3.org/2000/svg', 'feMerge');
-    const n1 = document.createElementNS('http://www.w3.org/2000/svg', 'feMergeNode');
-    n1.setAttribute('in', 'blur');
-    const n2 = document.createElementNS('http://www.w3.org/2000/svg', 'feMergeNode');
-    n2.setAttribute('in', 'SourceGraphic');
-    feMerge.appendChild(n1); feMerge.appendChild(n2);
-    filter.appendChild(feBlur); filter.appendChild(feMerge);
-    defs.appendChild(filter);
-  });
-  connSvg.appendChild(defs);
-
+  // Bloom is a wide translucent underlay stroke rather than an SVG filter:
+  // feGaussianBlur on every path forces an offscreen render pass per link,
+  // which is an order of magnitude more expensive at drag frame rates.
   state.connections.forEach(conn => {
     const from = getCardCenter(conn.from);
     const to = getCardCenter(conn.to);
@@ -1446,17 +1648,79 @@ function renderConnectors() {
 }
 
 // ============================================
-// MOUSE EVENTS
+// POINTER INPUT
 // ============================================
-wrapper.addEventListener('mousedown', e => {
-  if (e.target !== canvas && e.target !== wrapper && e.target.closest('.card')) return;
 
-  if (state.tool === 'pan' || e.button === 1) {
+/**
+ * Live pointer registry, populated in the capture phase so it sees every
+ * pointer regardless of which element ultimately handles the event.
+ * @type {Map<number, {x: number, y: number}>}
+ */
+const activePointers = new Map();
+
+/** @type {{dist: number, mx: number, my: number}|null} Active pinch gesture. */
+let pinch = null;
+
+document.addEventListener('pointerdown', e => {
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (activePointers.size === 2) beginPinch();
+}, true);
+
+/**
+ * Enters pinch mode: abandons any in-flight drag, pan or marquee so a second
+ * finger can never leave the single-pointer interactions half-applied.
+ * @returns {void}
+ */
+function beginPinch() {
+  cancelTransientInteractions();
+  pinch = pinchMetrics();
+}
+
+/**
+ * @returns {{dist: number, mx: number, my: number}|null} Distance and midpoint
+ *          of the first two active pointers, in viewport coordinates.
+ */
+function pinchMetrics() {
+  const [a, b] = [...activePointers.values()];
+  if (!a || !b) return null;
+  return {
+    dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+    mx: (a.x + b.x) / 2,
+    my: (a.y + b.y) / 2,
+  };
+}
+
+/**
+ * Releases drag/pan/marquee state without committing anything. Used by pinch
+ * entry and pointercancel, both of which mean "this gesture is no longer ours".
+ * @returns {void}
+ */
+function cancelTransientInteractions() {
+  if (state.dragCard) state.dragCard.classList.remove('dragging');
+  state.dragGroup.forEach(g => g.el.classList.remove('dragging'));
+  state.dragGroup = [];
+  state.dragCard = null;
+  state.isDragging = false;
+  state.isPanning = false;
+  state.selectionStart = null;
+  selBox.style.display = 'none';
+  wrapper.style.cursor = state.tool === 'pan' ? 'grab' : 'default';
+}
+
+wrapper.addEventListener('pointerdown', e => {
+  if (e.target !== canvas && e.target !== wrapper && e.target.closest('.card')) return;
+  if (activePointers.size > 1) return;                    // pinch owns multi-touch
+  if (e.button === 2) return;
+
+  const panGesture = state.tool === 'pan' || e.button === 1 || e.pointerType === 'touch';
+
+  if (panGesture) {
     state.isPanning = true;
     state.panStart = { x: e.clientX - state.x, y: e.clientY - state.y };
     wrapper.style.cursor = 'grabbing';
   } else if (state.tool === 'select') {
-    clearSelected();
+    state.selectionAdditive = e.shiftKey;
+    if (!e.shiftKey) clearSelected();
     const rect = wrapper.getBoundingClientRect();
     const sx = (e.clientX - rect.left - state.x) / state.scale;
     const sy = (e.clientY - rect.top - state.y) / state.scale;
@@ -1469,7 +1733,23 @@ wrapper.addEventListener('mousedown', e => {
   }
 });
 
-document.addEventListener('mousemove', e => {
+document.addEventListener('pointermove', e => {
+  if (activePointers.has(e.pointerId)) {
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  }
+
+  // Two-pointer pinch: scale around the midpoint and pan by its travel.
+  if (pinch && activePointers.size >= 2) {
+    const now = pinchMetrics();
+    if (now) {
+      state.x += now.mx - pinch.mx;
+      state.y += now.my - pinch.my;
+      zoom(now.dist / pinch.dist, now.mx, now.my);   // zoom() calls applyTransform()
+      pinch = now;
+    }
+    return;
+  }
+
   const rect = wrapper.getBoundingClientRect();
   const wx = (e.clientX - rect.left - state.x) / state.scale;
   const wy = (e.clientY - rect.top - state.y) / state.scale;
@@ -1491,6 +1771,16 @@ document.addEventListener('mousemove', e => {
     state.dragCard.style.top = y + 'px';
     const c = state.cards.find(c => c.id === state.dragCard.id);
     if (c) { c.x = x; c.y = y; }
+
+    // Rigid-body translation of the rest of the selection.
+    for (let i = 0; i < state.dragGroup.length; i++) {
+      const g = state.dragGroup[i];
+      const gx = x + g.dx, gy = y + g.dy;
+      g.el.style.left = gx + 'px';
+      g.el.style.top = gy + 'px';
+      if (g.rec) { g.rec.x = gx; g.rec.y = gy; }
+    }
+
     renderConnectors();
   }
 
@@ -1504,26 +1794,83 @@ document.addEventListener('mousemove', e => {
   }
 });
 
-document.addEventListener('mouseup', e => {
+document.addEventListener('pointerup', e => {
+  activePointers.delete(e.pointerId);
+  if (activePointers.size < 2) pinch = null;
+
   if (state.isDragging && state.dragCard) {
     state.dragCard.classList.remove('dragging');
+    state.dragGroup.forEach(g => g.el.classList.remove('dragging'));
+    state.dragGroup = [];
     state.dragCard = null;
     state.isDragging = false;
     updateMinimap();
+    scheduleSave();
   }
   if (state.isPanning) {
     state.isPanning = false;
     wrapper.style.cursor = state.tool === 'pan' ? 'grab' : 'default';
   }
   if (state.selectionStart) {
+    commitMarquee();
     state.selectionStart = null;
     selBox.style.display = 'none';
   }
 });
 
+document.addEventListener('pointercancel', e => {
+  activePointers.delete(e.pointerId);
+  if (activePointers.size < 2) pinch = null;
+  cancelTransientInteractions();
+});
+
+// A pointerup released outside the window is not guaranteed to reach us. Losing
+// focus is the reliable signal that every pointer is gone; without this a stale
+// registry entry would spuriously arm pinch on the next press.
+window.addEventListener('blur', () => {
+  activePointers.clear();
+  pinch = null;
+  cancelTransientInteractions();
+});
+
+/**
+ * Commits the marquee: selects every card whose axis-aligned bounding box
+ * intersects the rectangle. Shift-marquee is additive; a plain marquee replaces
+ * the selection (already cleared on pointerdown). Rectangles below a 4px
+ * threshold are treated as clicks and ignored.
+ * @returns {void}
+ */
+function commitMarquee() {
+  const start = state.selectionStart;
+  if (!start) return;
+
+  const x1 = Math.min(start.x, state.mouseX), x2 = Math.max(start.x, state.mouseX);
+  const y1 = Math.min(start.y, state.mouseY), y2 = Math.max(start.y, state.mouseY);
+  if (x2 - x1 < 4 && y2 - y1 < 4) return;
+
+  let hits = 0;
+  state.cards.forEach(c => {
+    const el = document.getElementById(c.id);
+    if (!el) return;
+    const left = parseFloat(el.style.left) || 0;
+    const top = parseFloat(el.style.top) || 0;
+    const right = left + (el.offsetWidth || c.w || 0);
+    const bottom = top + (el.offsetHeight || c.h || 0);
+    if (right < x1 || left > x2 || bottom < y1 || top > y2) return;   // AABB reject
+    selectCard(el);
+    hits++;
+  });
+
+  if (hits) showNotif('⊹ ' + hits + (hits === 1 ? ' NODE SELECTED' : ' NODES SELECTED'));
+}
+
 wrapper.addEventListener('wheel', e => {
   e.preventDefault();
-  const factor = e.deltaY < 0 ? 1.1 : 0.9;
+  // Trackpad pinch arrives as a ctrl-modified wheel event with fine-grained
+  // deltas; scale continuously there and in fixed steps for a notched wheel.
+  const factor = e.ctrlKey
+    ? Math.exp(-e.deltaY * 0.01)
+    : (e.deltaY < 0 ? 1.1 : 0.9);
   zoom(factor, e.clientX, e.clientY);
 }, { passive: false });
 
@@ -1566,8 +1913,14 @@ function ctxAction(action) {
     const y = (parseFloat(el.style.top) || 0) + 30;
     const newCard = createCard(el.dataset.type, x, y, el.innerHTML);
     newCard.style.zIndex = el.style.zIndex;
+    if (el.dataset.eyeOpts) newCard.dataset.eyeOpts = el.dataset.eyeOpts;
+    // A duplicated eye carries a live SVG that is already marked as registered;
+    // clearing the flag lets the ocular engine adopt the copy on its next scan.
+    newCard.querySelectorAll('[data-reg]').forEach(n => n.removeAttribute('data-reg'));
+    if (typeof window.scanEyes === 'function') window.scanEyes(newCard);
   }
   document.getElementById('context-menu').style.display = 'none';
+  scheduleSave();
 }
 
 // ============================================
@@ -1602,6 +1955,109 @@ function showNotif(msg) {
   document.body.appendChild(n);
   setTimeout(() => n.remove(), 3200);
 }
+
+// ============================================
+// SEARCH
+// ============================================
+const searchBar = document.getElementById('search-bar');
+const searchInput = document.getElementById('search-input');
+const searchCount = document.getElementById('search-count');
+
+/** @type {number|undefined} Debounce handle for incremental search. */
+let searchTimer;
+
+/** @type {string[]} Ids of the cards matching the active query. */
+let searchMatches = [];
+
+/**
+ * Filters the board by substring match against each card's rendered text.
+ * Matches are ringed in amber, non-matches are dimmed and made click-through
+ * so a filtered board stays navigable. An empty query restores every card.
+ *
+ * Matching runs over `textContent`, not markup, so styling spans and SVG never
+ * produce phantom hits.
+ *
+ * @param {string} query - Raw query string from the search field
+ * @returns {number} Number of matching cards
+ */
+function applySearch(query) {
+  const q = query.trim().toLowerCase();
+  searchMatches = [];
+
+  state.cards.forEach(c => {
+    const el = document.getElementById(c.id);
+    if (!el) return;
+    el.classList.remove('search-hit', 'search-dim');
+    if (!q) return;
+    if ((el.textContent || '').toLowerCase().includes(q)) {
+      el.classList.add('search-hit');
+      searchMatches.push(c.id);
+    } else {
+      el.classList.add('search-dim');
+    }
+  });
+
+  searchBar.classList.toggle('active', q.length > 0);
+  searchCount.textContent = q ? (searchMatches.length + '/' + state.cards.length) : '';
+  return searchMatches.length;
+}
+
+/** Clears the query and restores every card to full visibility. @returns {void} */
+function clearSearch() {
+  searchInput.value = '';
+  applySearch('');
+}
+
+/**
+ * Frames the viewport on the current match set with a 120px world-space margin,
+ * clamped to the legal zoom range. No-op when nothing matches.
+ * @returns {void}
+ */
+function fitToMatches() {
+  if (!searchMatches.length) return;
+
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  searchMatches.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const left = parseFloat(el.style.left) || 0;
+    const top = parseFloat(el.style.top) || 0;
+    x1 = Math.min(x1, left); y1 = Math.min(y1, top);
+    x2 = Math.max(x2, left + el.offsetWidth);
+    y2 = Math.max(y2, top + el.offsetHeight);
+  });
+  if (!isFinite(x1)) return;
+
+  const pad = 120;
+  const rect = wrapper.getBoundingClientRect();
+  const scale = Math.min(
+    Math.max(Math.min(rect.width / (x2 - x1 + pad * 2), rect.height / (y2 - y1 + pad * 2)), 0.06),
+    1.6
+  );
+  state.scale = scale;
+  state.x = -((x1 + x2) / 2) * scale + rect.width / 2;
+  state.y = -((y1 + y2) / 2) * scale + rect.height / 2;
+  applyTransform();
+  showNotif('⌕ ' + searchMatches.length + ' MATCHES IN VIEW');
+}
+
+searchInput.addEventListener('input', e => {
+  const value = e.target.value;
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => applySearch(value), 120);   // debounced: one pass per pause
+});
+
+searchInput.addEventListener('keydown', e => {
+  e.stopPropagation();                                        // never reaches canvas shortcuts
+  if (e.key === 'Escape') {
+    clearSearch();
+    searchInput.blur();
+  } else if (e.key === 'Enter') {
+    clearTimeout(searchTimer);
+    applySearch(searchInput.value);
+    fitToMatches();
+  }
+});
 
 // ============================================
 // MINIMAP
@@ -1708,8 +2164,8 @@ function initParticles() {
   particles = Array.from({ length: 120 }, () => ({
     x: Math.random() * window.innerWidth,
     y: Math.random() * window.innerHeight,
-    vx: (Math.random() - 0.5) * 0.3,
-    vy: (Math.random() - 0.5) * 0.3,
+    vx: VO.reducedMotion ? 0 : (Math.random() - 0.5) * 0.3,
+    vy: VO.reducedMotion ? 0 : (Math.random() - 0.5) * 0.3,
     r: Math.random() * 1.5 + 0.3,
     a: Math.random() * 0.5 + 0.1,
     col: ['#00ff9d', '#7b4fff', '#cc2233', '#ffaa00', '#00ccff'][Math.floor(Math.random() * 5)]
@@ -1751,12 +2207,15 @@ function animParticles() {
     }
   }
 
-  requestAnimationFrame(animParticles);
+  if (!VO.reducedMotion) requestAnimationFrame(animParticles);
 }
 
 initParticles();
-animParticles();
-window.addEventListener('resize', initParticles);
+animParticles();   // reduced motion: paints one static field, then stops
+window.addEventListener('resize', () => {
+  initParticles();
+  if (VO.reducedMotion) animParticles();
+});
 
 // ============================================
 // POPULATE CANVAS WITH INITIAL CONTENT
@@ -2286,14 +2745,284 @@ function buildCanvas() {
 }
 
 // ============================================
+// SESSION PERSISTENCE
+// ============================================
+
+/** @constant {string} Namespaced key; the version suffix gates schema migrations. */
+const STORAGE_KEY = 'void-oculus/session';
+
+/** @constant {number} Schema version. A mismatch discards the snapshot rather than guessing. */
+const SCHEMA_VERSION = 1;
+
+/**
+ * Tag allowlist for rehydrated card markup. Anything outside this set is
+ * dropped wholesale — script, iframe, object, embed, link, style, form controls
+ * and every other element capable of executing or fetching.
+ * @constant {Set<string>}
+ */
+const ALLOWED_TAGS = new Set([
+  // structural / text
+  'div', 'span', 'p', 'br', 'hr', 'b', 'i', 'u', 's', 'em', 'strong', 'small',
+  'sub', 'sup', 'code', 'pre', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5',
+  'h6', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'canvas',
+  // svg
+  'svg', 'g', 'defs', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline',
+  'polygon', 'text', 'tspan', 'lineargradient', 'radialgradient', 'stop',
+  'clippath', 'filter', 'fegaussianblur', 'femerge', 'femergenode', 'use',
+  'title', 'desc', 'marker',
+]);
+
+/**
+ * Sanitises persisted card markup before it re-enters the DOM.
+ *
+ * Parsing happens inside an inert `<template>`, so nothing executes, loads or
+ * renders during inspection. The policy is an allowlist over element names plus
+ * a deny policy over the attribute classes that can execute or fetch:
+ * event handlers, `src`, non-fragment `href`, and CSS values carrying `url()`
+ * or `javascript:`. Presentational attributes and inline geometry survive
+ * untouched, which is what makes procedurally generated SVG round-trip.
+ *
+ * @param {string} html - Untrusted markup from storage
+ * @returns {string} Markup safe to assign to innerHTML
+ */
+function sanitizeHTML(html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = String(html || '');
+
+  const walk = node => {
+    [...node.childNodes].forEach(child => {
+      if (child.nodeType === Node.COMMENT_NODE) { child.remove(); return; }
+      if (child.nodeType !== Node.ELEMENT_NODE) return;          // text passes through
+
+      if (!ALLOWED_TAGS.has(child.tagName.toLowerCase())) { child.remove(); return; }
+
+      [...child.attributes].forEach(attr => {
+        const name = attr.name.toLowerCase();
+        const value = attr.value || '';
+        const drop =
+          name.startsWith('on') ||
+          name === 'src' || name === 'srcdoc' || name === 'formaction' ||
+          ((name === 'href' || name === 'xlink:href') && !value.trim().startsWith('#')) ||
+          (name === 'style' && /url\s*\(|expression\s*\(|javascript:/i.test(value)) ||
+          name === 'data-reg';                                    // stale gaze registration
+        if (drop) child.removeAttribute(attr.name);
+      });
+
+      walk(child);
+    });
+  };
+
+  walk(tpl.content);
+  return tpl.innerHTML;
+}
+
+/**
+ * Captures one card as a storable record.
+ *
+ * Procedural irises are the bulk of the board's markup, so any card carrying
+ * `data-eye-opts` has its SVG replaced by a slot marker and is regenerated from
+ * its seed on restore. Because generation is deterministic this is lossless,
+ * and it keeps a full 85-card snapshot in the tens of kilobytes instead of
+ * hundreds.
+ *
+ * @param {{id: string, type: string}} c - State record for the card
+ * @returns {Object|null} Serialisable snapshot, or null if the element is gone
+ */
+function cardSnapshot(c) {
+  const el = document.getElementById(c.id);
+  if (!el) return null;
+
+  const clone = el.cloneNode(true);
+  if (el.dataset.eyeOpts) {
+    clone.querySelectorAll('svg.eye-svg').forEach(svg => {
+      const slot = document.createElement('span');
+      slot.setAttribute('data-eye-slot', '');
+      svg.replaceWith(slot);
+    });
+  }
+  clone.querySelectorAll('[data-reg]').forEach(n => n.removeAttribute('data-reg'));
+  clone.querySelectorAll('[contenteditable]').forEach(n => n.removeAttribute('contenteditable'));
+
+  return {
+    id: c.id,
+    type: el.dataset.type || 'sticky',
+    x: parseFloat(el.style.left) || 0,
+    y: parseFloat(el.style.top) || 0,
+    z: el.style.zIndex || '',
+    cls: [...el.classList]
+      .filter(k => k !== 'card' && k !== 'selected-card' && k !== 'dragging'
+                && k !== 'editing' && !k.startsWith('search-'))
+      .join(' '),
+    eye: el.dataset.eyeOpts || '',
+    html: clone.innerHTML,
+  };
+}
+
+/** @type {number|undefined} Debounce handle for session writes. */
+let saveTimer;
+let storageWarned = false;
+
+/**
+ * Coalesces session writes. Every mutation calls this; the write itself happens
+ * once the board has been quiet for `delay` ms, so dragging a card across the
+ * canvas costs one serialisation, not one per frame.
+ * @param {number} [delay=600] - Quiet period in milliseconds
+ * @returns {void}
+ */
+function scheduleSave(delay = 600) {
+  if (!VO.storage || VO.booting) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveSession, delay);
+}
+
+/**
+ * Writes the board to localStorage. Failure is non-fatal and reported once:
+ * a board that cannot be saved must still be usable.
+ * @returns {void}
+ */
+function saveSession() {
+  if (!VO.storage) return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      v: SCHEMA_VERSION,
+      savedAt: Date.now(),
+      transform: { x: state.x, y: state.y, scale: state.scale },
+      nextId: state.nextId,
+      cards: state.cards.map(cardSnapshot).filter(Boolean),
+      connections: state.connections,
+    }));
+  } catch (err) {
+    VO.storage = false;
+    if (!storageWarned) {
+      storageWarned = true;
+      showNotif('⚠ SESSION NOT SAVED — STORAGE UNAVAILABLE');
+      console.warn('[void-oculus] session persistence disabled:', err);
+    }
+  }
+}
+
+/**
+ * Rebuilds the board from a stored snapshot.
+ *
+ * Restoration is all-or-nothing: any structural problem tears down whatever was
+ * partially built, drops the snapshot, and returns false so the caller falls
+ * back to the deterministic seeded board. A corrupt session can therefore never
+ * leave the user staring at half a canvas.
+ *
+ * @returns {boolean} True when the board was restored from storage
+ */
+function restoreSession() {
+  if (!VO.storage) return false;
+
+  let data;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    data = JSON.parse(raw);
+  } catch (_) {
+    return false;
+  }
+
+  if (!data || data.v !== SCHEMA_VERSION || !Array.isArray(data.cards) || !data.cards.length) {
+    return false;
+  }
+
+  try {
+    let maxId = 0;
+    data.cards.forEach(snap => {
+      const el = createCard(
+        String(snap.type || 'sticky'),
+        Number(snap.x) || 0,
+        Number(snap.y) || 0,
+        sanitizeHTML(snap.html),
+        String(snap.cls || ''),
+        { id: String(snap.id), z: snap.z, silent: true }
+      );
+      if (snap.eye) el.dataset.eyeOpts = snap.eye;
+      VO.pendingEyes.push(el);
+      const n = parseInt(String(snap.id).split('-')[1], 10);
+      if (Number.isFinite(n)) maxId = Math.max(maxId, n + 1);
+    });
+    state.nextId = Math.max(Number(data.nextId) || 0, maxId);
+
+    const ids = new Set(state.cards.map(c => c.id));
+    (Array.isArray(data.connections) ? data.connections : []).forEach(cn => {
+      if (!cn || !ids.has(cn.from) || !ids.has(cn.to)) return;     // drop dangling links
+      state.connections.push({
+        from: cn.from,
+        to: cn.to,
+        color: /^#[0-9a-f]{3,8}$/i.test(cn.color || '') ? cn.color : '#00ff9d',
+        id: 'conn-' + (state.nextConnId++),
+      });
+    });
+    document.getElementById('stat-links').textContent = state.connections.length;
+
+    if (data.transform) {
+      state.x = Number(data.transform.x) || 0;
+      state.y = Number(data.transform.y) || 0;
+      state.scale = Math.min(Math.max(Number(data.transform.scale) || 0.72, 0.06), 3);
+    }
+
+    VO.restored = true;
+    return true;
+  } catch (err) {
+    console.warn('[void-oculus] session restore failed; rebuilding the seeded board', err);
+    state.cards.slice().forEach(c => document.getElementById(c.id)?.remove());
+    state.cards = [];
+    state.connections = [];
+    state.selectedCards.clear();
+    state.nextId = 0;
+    VO.pendingEyes.length = 0;
+    VO.restored = false;
+    try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+    return false;
+  }
+}
+
+/**
+ * Discards the saved session and reloads, which rebuilds the seeded board from
+ * its generation code. Reload is used deliberately: it is the only teardown
+ * guaranteed to clear every timer, animation and eye registration.
+ * @returns {void}
+ */
+function resetBoard() {
+  const saved = VO.storage && localStorage.getItem(STORAGE_KEY);
+  if (saved && !confirm('Discard this board and rebuild the seeded canvas?')) return;
+  try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+  location.reload();
+}
+
+window.addEventListener('beforeunload', () => {
+  clearTimeout(saveTimer);
+  if (!VO.booting) saveSession();       // flush any pending debounce
+});
+
+// ============================================
 // INIT
 // ============================================
+const sessionRestored = restoreSession();
+if (!sessionRestored) buildCanvas();
 applyTransform();
-buildCanvas();
+if (sessionRestored) renderConnectors();   // seeded boards link themselves on a timer
 updateMinimap();
 
-// Space bar panning
+/**
+ * True when the event originated in a text-entry context. Global shortcuts are
+ * suppressed for these so typing a space, or deleting a character, never leaks
+ * into canvas commands.
+ * @param {Event} e
+ * @returns {boolean}
+ */
+function isTextEntry(e) {
+  const t = e.target;
+  if (!(t instanceof Element)) return false;
+  return t.matches('input, textarea, select, [contenteditable="true"]')
+      || !!t.closest('[contenteditable="true"]');
+}
+
 document.addEventListener('keydown', e => {
+  if (isTextEntry(e)) return;
+
   if (e.code === 'Space') {
     e.preventDefault();
     setTool('pan');
@@ -2301,21 +3030,34 @@ document.addEventListener('keydown', e => {
   if (e.code === 'Escape') {
     setTool('select');
     clearSelected();
+    clearSearch();
     state.connecting.active = false;
   }
   if (e.code === 'Delete' || e.code === 'Backspace') {
-    if (document.activeElement === document.body) {
-      state.selectedCards.forEach(id => deleteCard(id));
+    if (document.activeElement === document.body && state.selectedCards.size) {
+      [...state.selectedCards].forEach(id => deleteCard(id));
+      state.selectedCards.clear();
     }
+  }
+  // Ctrl/Cmd-F focuses canvas search rather than the browser's page search,
+  // which cannot see cards outside the viewport.
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    e.preventDefault();
+    searchInput.focus();
+    searchInput.select();
   }
 });
 
 document.addEventListener('keyup', e => {
+  if (isTextEntry(e)) return;
   if (e.code === 'Space') setTool('select');
 });
 
-// Keyboard shortcuts display
-showNotif('⚡ OCULUS LOADED — DRAG TO PAN · SCROLL TO ZOOM · THE EYES TRACK YOU');
+VO.booting = false;
+
+showNotif(sessionRestored
+  ? '⚡ SESSION RESTORED — ' + state.cards.length + ' CARDS · ' + state.connections.length + ' LINKS'
+  : '⚡ OCULUS LOADED — DRAG TO PAN · SCROLL TO ZOOM · THE EYES TRACK YOU');
 
 // Periodic minimap refresh
 setInterval(updateMinimap, 1000);
@@ -2492,7 +3234,9 @@ setInterval(updateMinimap, 1000);
         if (cx < vx - 400 || cx > vx + vw + 400 || cy < vy - 400 || cy > vy + vh + 400) continue;
         const dx = mx - cx, dy = my - cy;
         const d = Math.hypot(dx, dy) || 1;
-        const pull = Math.min(1, d / (e.r * 6));
+        // Gaze answers the pointer directly, so it survives reduced-motion —
+        // but at a third of the travel, well under any vestibular threshold.
+        const pull = Math.min(1, d / (e.r * 6)) * (VO.reducedMotion ? 0.33 : 1);
         const ux = dx / d, uy = dy / d;
         e.globe.style.transform = `translate(${(ux * e.r * 0.09 * pull).toFixed(2)}px,${(uy * e.r * 0.09 * pull).toFixed(2)}px)`;
         if (e.pupil) e.pupil.style.transform = `translate(${(ux * e.r * 0.055 * pull).toFixed(2)}px,${(uy * e.r * 0.055 * pull).toFixed(2)}px)`;
@@ -2507,18 +3251,20 @@ setInterval(updateMinimap, 1000);
     e.svg.classList.add('blink');
     setTimeout(() => e.svg.classList.remove('blink'), hold || 110);
   }
-  setInterval(() => {
-    const now = performance.now();
-    for (const e of eyes) {
-      if (now > e.next) {
-        blink(e);
-        e.next = now + 2600 + Math.random() * 11000;
+  if (!VO.reducedMotion) {
+    setInterval(() => {
+      const now = performance.now();
+      for (const e of eyes) {
+        if (now > e.next) {
+          blink(e);
+          e.next = now + 2600 + Math.random() * 11000;
+        }
       }
-    }
-  }, 260);
+    }, 260);
+  }
 
   // every ~40s: the whole board blinks in a wave. it notices you.
-  setInterval(() => {
+  if (!VO.reducedMotion) setInterval(() => {
     const cx = (-state.x / state.scale) + (window.innerWidth / state.scale) / 2;
     const cy = (-state.y / state.scale) + (window.innerHeight / state.scale) / 2;
     eyes.forEach(e => {
@@ -2640,16 +3386,23 @@ setInterval(updateMinimap, 1000);
   /* ---------- card helpers ---------- */
   function eyeCard(x, y, o) {
     const w = o.w || 200;
+    /** @type {Object} Generation parameters, stored so the SVG can be rebuilt
+        from its seed after a session restore instead of being persisted. */
+    const eyeOpts = {
+      size: o.size || w - 20, seed: o.seed, pal: o.pal,
+      pupil: o.pupil || 0.32, fibers: o.fibers || 64, drift: o.drift,
+    };
     const c = createCard('eye', x, y, `
       <div class="img-card eye-card" style="width:${w}px">
         <div class="img-placeholder eye-well" style="height:${o.h || w}px">
-          ${iris({ size: o.size || w - 20, seed: o.seed, pal: o.pal, pupil: o.pupil || 0.32, fibers: o.fibers || 64, drift: o.drift })}
+          ${iris(eyeOpts)}
           ${o.sweep ? '<div class="scan-sweep"></div>' : ''}
         </div>
         <div class="img-caption" style="display:flex;justify-content:space-between">
           <span>${o.caption}</span><span style="color:${o.meta_col || 'var(--text-dim)'}">${o.meta || ''}</span>
         </div>
       </div>`);
+    c.dataset.eyeOpts = JSON.stringify(eyeOpts);
     scanEyes(c);
     return c;
   }
@@ -2929,11 +3682,12 @@ setInterval(updateMinimap, 1000);
     /* ================================================================
        THE WATCHER — centerpiece
        ================================================================ */
+    const watcherOpts = { size: 380, pal: 'violet', seed: 1313, pupil: 0.30, fibers: 140, drift: true };
     const watcher = createCard('eye', 1420, 1700, `
       <div class="watcher-card" style="width:430px">
         <div class="watcher-title">◉ THE WATCHER</div>
         <div class="eye-well" style="border-radius:6px;padding:8px;display:flex;justify-content:center;">
-          ${iris({ size: 380, pal: 'violet', seed: 1313, pupil: 0.30, fibers: 140, drift: true })}
+          ${iris(watcherOpts)}
         </div>
         <div class="watcher-meta">
           <span>STATUS: <span style="color:var(--phosphor)">OPEN</span></span>
@@ -2941,6 +3695,7 @@ setInterval(updateMinimap, 1000);
           <span>BLINK: <span style="color:var(--violet-bright)">RARE</span></span>
         </div>
       </div>`);
+    watcher.dataset.eyeOpts = JSON.stringify(watcherOpts);
     scanEyes(watcher);
 
     /* ================================================================
@@ -3082,11 +3837,13 @@ setInterval(updateMinimap, 1000);
       [140, 1180, 110, 'violet', 17],    // margin
       [1900, 2180, 88, 'phosphor', 18],
     ].forEach(([x, y, s, pal, seed]) => {
+      const opts = { size: s, pal, seed, pupil: 0.28, fibers: 44, drift: true };
       const c = createCard('eye', x, y, `
         <div class="eye-well" style="border-radius:50%;padding:0;background:transparent!important">
-          ${iris({ size: s, pal, seed, pupil: 0.28, fibers: 44, drift: true })}
+          ${iris(opts)}
         </div>`);
       c.style.zIndex = 8;
+      c.dataset.eyeOpts = JSON.stringify(opts);
       scanEyes(c);
     });
 
@@ -3165,12 +3922,20 @@ setInterval(updateMinimap, 1000);
   setTimeout(() => {
     document.getElementById('boot-oculus').classList.add('gone');
     setTimeout(() => document.getElementById('boot-oculus').remove(), 1400);
-  }, 2300);
+  }, VO.reducedMotion ? 300 : 2300);
   document.getElementById('boot-oculus').addEventListener('click', function () {
     this.classList.add('gone');
   });
 
   /* ---------- runtime eye spawner (toolbar) ---------- */
+  /**
+   * Public surface of the ocular engine. Three exports, each with a caller
+   * outside this IIFE: the toolbar spawns eyes, the canvas engine rehydrates
+   * restored irises with `iris()`, and adopts new subtrees with `scanEyes()`.
+   */
+  window.iris = iris;
+  window.scanEyes = scanEyes;
+
   window.addEyeCard = function () {
     const pal = PAL_KEYS[Math.floor(Math.random() * PAL_KEYS.length)];
     const x = (-state.x / state.scale) + 220 + Math.random() * 380;
@@ -3184,10 +3949,37 @@ setInterval(updateMinimap, 1000);
     showNotif('◉ A NEW EYE OPENS');
   };
 
+  /* ---------- restored boards: rebuild irises from their seeds ----------
+     A restored card carries only its generation parameters, not the SVG. This
+     is the payoff of deterministic generation: regenerating from the seed is
+     byte-identical to what was on screen when the session was saved, so a
+     multi-hundred-kilobyte snapshot collapses to a few dozen bytes per eye. */
+  function rehydrateRestoredEyes() {
+    VO.pendingEyes.forEach(card => {
+      const raw = card.dataset.eyeOpts;
+      if (raw) {
+        let opts = null;
+        try { opts = JSON.parse(raw); } catch (_) { /* fall through to scan only */ }
+        if (opts) {
+          card.querySelectorAll('[data-eye-slot]').forEach(slot => {
+            const holder = document.createElement('div');
+            holder.innerHTML = iris(opts);
+            const svg = holder.firstElementChild;
+            if (svg) slot.replaceWith(svg); else slot.remove();
+          });
+        }
+      }
+      scanEyes(card);
+    });
+    VO.pendingEyes.length = 0;
+    updateMinimapCards();   // re-measure: rehydrated irises change card metrics
+    renderConnectors();     // …so endpoints move and the paths must be re-solved
+  }
+
   /* ---------- ignite ---------- */
   buildMacroIris();
   buildBackgroundEyes();
-  buildOculus();
+  if (VO.restored) rehydrateRestoredEyes(); else buildOculus();
   gazeLoop();
 
   setTimeout(() => showNotif('◉ ' + eyes.length + ' EYES OPEN · THEY FOLLOW THE CURSOR · ZOOM OUT TO SEE WHAT YOU ARE INSIDE OF'), 3000);
