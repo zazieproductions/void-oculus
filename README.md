@@ -181,6 +181,8 @@ Bring to Front (`z-index: 500`) · Send to Back (`z-index: 5`) · Duplicate (dee
 
 ## Architecture
 
+This section is the working summary. [`ARCHITECTURE.md`](./ARCHITECTURE.md) carries the long form: 17 Mermaid schematics covering system context, module dependencies, component hierarchy, data flow, boot lifecycle, the interaction state machine, the entity model, trust zones and failure modes.
+
 ### Compositing model
 
 Six layers, deliberately ordered so that the expensive ones never invalidate the cheap ones.
@@ -470,7 +472,7 @@ The choice of raster versus vector is per-subsystem rather than doctrinal: the p
 void-oculus/
 ├── index.html                  # The entire application — CSS, markup, and both engines
 ├── tests/
-│   └── smoke.mjs               # jsdom smoke suite: 53 assertions, no browser required
+│   └── smoke.mjs               # jsdom smoke suite: 54 assertions, no browser required
 ├── ci/
 │   └── verify.yml              # Verification workflow, staged for activation (see below)
 ├── README.md                   # This document
@@ -734,7 +736,7 @@ npm install --no-save jsdom@25     # test-only; nothing is added to the shipped 
 node tests/smoke.mjs               # ~10s, exits non-zero on failure
 ```
 
-`tests/smoke.mjs` loads `index.html` in jsdom with a stubbed 2D context and asserts 53 expectations across seven groups:
+`tests/smoke.mjs` loads `index.html` in jsdom with a stubbed 2D context and asserts 54 expectations across seven groups:
 
 | Group | Covers |
 |---|---|
@@ -742,6 +744,7 @@ node tests/smoke.mjs               # ~10s, exits non-zero on failure
 | Search | Exact and case-insensitive matching, dim/hit classes, live counter, full restore on an empty query |
 | Marquee | Multi-card commit, visual marking parity with `state`, sub-threshold rectangles treated as clicks |
 | Group drag | Offset capture, translation of unpointed members, state records tracking the DOM, clean release |
+| Registry hygiene | Deleting a card prunes its eye from the gaze registry and the EYES counter |
 | Editing | Double-click opens an editor, card flagged, blur commits, edited text becomes searchable |
 | Sanitisation | Strips `script`, `img`, `iframe`, `javascript:` hrefs, `on*` handlers, `url()` styles, stale `data-reg`; preserves SVG geometry and benign inline styles; executes nothing |
 | Persistence | Round trip through storage, schema version, seed-slot compression (~100 KB for 85 cards), position fidelity, no double-build, iris rehydration, connector repaint, gaze re-registration, id-space advance, corrupt-snapshot and unknown-schema fallback, reduced-motion boot |
@@ -961,7 +964,7 @@ The typefaces loaded at runtime are licensed separately: JetBrains Mono, Space G
 
 | Document | Contents |
 |---|---|
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | Layer model, coordinate transforms, state machine, event flow |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | 17 Mermaid schematics: system context, module map, data flow, boot lifecycle, state machine, entity model, trust zones, failure modes, plus an architecture narrative and a live technical-debt register |
 | [API.md](./API.md) | Function-level reference for the global surface |
 | [CONFIGURATION.md](./CONFIGURATION.md) | Theming, tunable constants, embedding, offline setup |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Workflow, coding standards, review criteria |

@@ -134,6 +134,15 @@ ok('state records follow the DOM',
 pointer(w, w.document, 'pointerup', { clientX: 300, clientY: 250 });
 ok('drag state is released', ev('state.dragGroup.length') === 0 && ev('state.isDragging') === false);
 
+console.log('\n── eye registry hygiene ───────────────────────────────────');
+const eyeCard = ev("state.cards.find(c => c.type === 'eye').id");
+const eyesBefore = Number(w.document.getElementById('stat-eyes').textContent);
+w.deleteCard(eyeCard);
+await new Promise(r => setTimeout(r, 2600));   // prune pass runs ~every 2s in the gaze loop
+const eyesAfter = Number(w.document.getElementById('stat-eyes').textContent);
+ok('deleted cards are pruned from the gaze registry', eyesAfter === eyesBefore - 1,
+   `${eyesBefore} -> ${eyesAfter}`);
+
 console.log('\n── editing ────────────────────────────────────────────────');
 const sticky = w.document.querySelector('.card [class*="sticky"]')?.closest('.card');
 pointer(w, sticky, 'dblclick', {});
@@ -201,8 +210,12 @@ ok('restored board paints its connectors',
    w2.document.querySelectorAll('#connector-svg path').length ===
    ev2('state.connections.length') * 2,
    `${w2.document.querySelectorAll('#connector-svg path').length} paths`);
+// 42 ambient watchers are rebuilt from their own seed on every load; the rest
+// are card-borne and must be re-adopted from the restored subtrees.
+const AMBIENT_EYES = 42;
 ok('re-registers restored eyes for gaze',
-   Number(w2.document.getElementById('stat-eyes').textContent) >= 61,
+   Number(w2.document.getElementById('stat-eyes').textContent) ===
+   AMBIENT_EYES + ev2("state.cards.filter(c => c.type === 'eye').length"),
    `got ${w2.document.getElementById('stat-eyes').textContent}`);
 ok('nextId clears the restored range',
    ev2('state.nextId') >= Math.max(...parsed.cards.map(c => Number(c.id.split('-')[1]) + 1)));

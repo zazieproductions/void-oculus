@@ -3220,9 +3220,33 @@ setInterval(updateMinimap, 1000);
     if (st) st.textContent = eyes.length;
   }
 
+  /**
+   * Drops registry entries whose card has left the document.
+   *
+   * `deleteCard()` removes the element but cannot reach into this IIFE, so
+   * without this pass every deleted eye would be iterated forever — a slow CPU
+   * and memory leak that also holds a detached subtree alive. Detached nodes
+   * are identified by `isConnected`, which covers deletion by any route, not
+   * just the context menu.
+   *
+   * @returns {void}
+   */
+  function pruneDetachedEyes() {
+    let removed = 0;
+    for (let i = eyes.length - 1; i >= 0; i--) {
+      const card = eyes[i].card;
+      if (card && !card.isConnected) { eyes.splice(i, 1); removed++; }
+    }
+    if (removed) {
+      const st = document.getElementById('stat-eyes');
+      if (st) st.textContent = eyes.length;
+    }
+  }
+
   let frame = 0;
   function gazeLoop() {
     frame++;
+    if (frame % 120 === 0) pruneDetachedEyes();   // ~every 2s, O(n), off the hot path
     if (frame % 2 === 0) {           // ~30fps is plenty for eyeballs
       const mx = state.mouseX, my = state.mouseY;
       const vw = window.innerWidth / state.scale, vh = window.innerHeight / state.scale;

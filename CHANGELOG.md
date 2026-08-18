@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Reduced-motion support** — `prefers-reduced-motion` stops fiber drift, pupil
   pulse, iris breath, scan lines, sweeps, blinking and the particle field, and
   shortens the boot sequence. Pointer-driven gaze is damped rather than removed.
-- **Automated smoke suite** — `tests/smoke.mjs`, 53 assertions in jsdom covering
+- **Automated smoke suite** — `tests/smoke.mjs`, 54 assertions in jsdom covering
   board construction, search, marquee, group drag, editing, sanitisation and the
   persistence round trip including corrupt-snapshot recovery.
 - **CI verification workflow** — `ci/verify.yml` runs the suite, parses both
@@ -65,6 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Duplicated cards containing an iris are now adopted by the gaze registry
   instead of inheriting a stale `data-reg` flag and never tracking.
+- `eyes[]` records are pruned when their card leaves the document. Deleted eyes
+  were previously animated forever, holding a detached subtree alive — a slow
+  CPU and memory leak identified in the architecture review.
+- Removed a stray unclosed code fence at the end of `ARCHITECTURE.md`.
 - Pointer gestures have an explicit abandon path, so a second finger or a
   `pointercancel` can no longer leave a drag, pan or marquee half-applied.
 
