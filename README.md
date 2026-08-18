@@ -471,6 +471,8 @@ void-oculus/
 ├── index.html                  # The entire application — CSS, markup, and both engines
 ├── tests/
 │   └── smoke.mjs               # jsdom smoke suite: 53 assertions, no browser required
+├── ci/
+│   └── verify.yml              # Verification workflow, staged for activation (see below)
 ├── README.md                   # This document
 ├── ARCHITECTURE.md             # Layer model, coordinate math, state transitions
 ├── API.md                      # Function-level reference for the global surface
@@ -486,7 +488,6 @@ void-oculus/
 ├── .gitignore                  # Build artifacts, editor state, future Node tooling
 └── .github/
     ├── workflows/static.yml    # GitHub Pages deployment
-    ├── workflows/verify.yml    # Smoke suite, inline-script parse check, dependency guard
     ├── dependabot.yml          # Weekly Actions updates
     ├── ISSUE_TEMPLATE/         # Structured bug report and feature request forms
     ├── PULL_REQUEST_TEMPLATE.md
@@ -749,11 +750,19 @@ jsdom implements no layout, so the suite deliberately asserts logic and state on
 
 ### Continuous integration
 
-`.github/workflows/verify.yml` runs on every push and pull request:
+`ci/verify.yml` defines three jobs to run on every push and pull request:
 
 1. **Smoke suite** — the run above, on Node 22.
 2. **Parse check** — both inline script blocks are compiled with `new Function`, catching syntax errors without a browser.
 3. **Dependency guard** — fails the build if any `<script src=…>` appears in `index.html`, making the zero-dependency invariant executable rather than aspirational.
+
+> **Activation required.** The workflow is staged at `ci/verify.yml` rather than `.github/workflows/`, because the account that authored it lacks GitHub's `workflows` permission and cannot write to that directory. The file is complete; enabling it is one command by anyone with write access:
+>
+> ```bash
+> git mv ci/verify.yml .github/workflows/verify.yml
+> ```
+>
+> Until then the suite is a local pre-merge step rather than an enforced gate. Every job in it passes against this commit — verify locally with the two commands above.
 
 ### Pre-merge manual matrix
 
@@ -931,7 +940,7 @@ Non-negotiables for review:
 3. **Seeded, not random.** Any new procedural element must draw from `rng(seed)` so output stays reproducible.
 4. **Tokens, not literals.** Colours, fonts and surfaces come from custom properties.
 5. **JSDoc on public functions,** including `@param`, `@returns`, and a one-line summary.
-6. **Keep the smoke suite green, and extend it.** Behaviour that can be asserted without layout should arrive with assertions. CI runs it on every push and pull request.
+6. **Keep the smoke suite green, and extend it.** Behaviour that can be asserted without layout should arrive with assertions. Run it before every PR; once `ci/verify.yml` is activated it runs on every push.
 7. **Sanitise at the boundary.** Any new path that brings outside markup into the DOM goes through `sanitizeHTML()`, and adds a case to the sanitisation group of the suite.
 8. **Walk the manual matrix** on Chrome, Firefox and Safari before requesting review, and note in the PR what you exercised.
 9. **Respect the frame budget.** New per-frame work must be culled, throttled, or delegated to CSS. Attach a Performance profile if you touch an animation loop.

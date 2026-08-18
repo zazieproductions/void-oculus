@@ -60,9 +60,9 @@ alongside any change to the policy.
 
 ### External Dependencies
 
-The application loads **no external scripts**. A CI job in
-`.github/workflows/verify.yml` fails the build if a `<script src=…>` is ever
-added to `index.html`.
+The application loads **no external scripts**. A CI job in `ci/verify.yml`
+fails the build if a `<script src=…>` is ever added to `index.html`. (Activate
+it with `git mv ci/verify.yml .github/workflows/verify.yml`.)
 
 | Resource | Origin | Purpose |
 |----------|--------|---------|

@@ -1,6 +1,15 @@
 # Verification gate for pull requests and pushes to main.
-# Deployment lives in static.yml and is kept separate on purpose: a failing
-# check must never be able to half-apply a production deploy.
+#
+# ACTIVATION: this file is staged outside .github/workflows/ because the bot
+# account that authored it lacks the `workflows` permission and cannot write
+# there. To enable it, a human with write access runs:
+#
+#     git mv ci/verify.yml .github/workflows/verify.yml
+#     git commit -m "Enable verification workflow"
+#
+# It is otherwise complete and needs no edits. Deployment lives in static.yml
+# and is kept separate on purpose: a failing check must never be able to
+# half-apply a production deploy.
 
 name: Verify
 

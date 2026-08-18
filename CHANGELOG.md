@@ -37,9 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Automated smoke suite** — `tests/smoke.mjs`, 53 assertions in jsdom covering
   board construction, search, marquee, group drag, editing, sanitisation and the
   persistence round trip including corrupt-snapshot recovery.
-- **CI verification workflow** — `.github/workflows/verify.yml` runs the suite,
-  parses both inline script blocks, and fails the build if any external
-  `<script src=…>` is added.
+- **CI verification workflow** — `ci/verify.yml` runs the suite, parses both
+  inline script blocks, and fails the build if any external `<script src=…>` is
+  added. Staged outside `.github/workflows/` because the authoring account lacks
+  GitHub's `workflows` permission; activate with
+  `git mv ci/verify.yml .github/workflows/verify.yml`.
 
 ### Changed
 - Global keyboard shortcuts are suppressed inside text-entry contexts, so typing
