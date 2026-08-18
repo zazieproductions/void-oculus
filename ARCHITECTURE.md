@@ -9,24 +9,25 @@
 
 ## 0. One-paragraph summary
 
-VOID//OCULUS is a **zero-dependency-at-build-time, single-artifact web application**. The entire
-product — markup, ~990 lines of CSS, and two classic (non-module) `<script>` blocks totalling
-~2100 lines of JavaScript — lives in one file, `index.html` (3197 lines). There is **no backend, no
-database, no API server, no package manager, no bundler and no test suite**. The only runtime
-"services" are the static host (GitHub Pages) and two third-party CDNs (`cdnjs.cloudflare.com`,
-`fonts.googleapis.com`). All application state is a single mutable global `state` object plus a
-module-private `eyes[]` registry; the DOM itself is the second, redundant source of truth. The
-"pipeline" is a single GitHub Actions workflow that uploads the repository root verbatim to Pages.
+VOID//OCULUS is a **zero-dependency, single-artifact web application**. The entire product —
+markup, ~1050 lines of CSS, and two classic (non-module) `<script>` blocks totalling ~2830 lines of
+JavaScript — lives in one file, `index.html` (3978 lines). There is **no backend, no database, no
+API server, no package manager and no bundler**. The only runtime "service" besides the static host
+(GitHub Pages) is `fonts.googleapis.com`; no external script is loaded, and CI enforces that.
+Application state is a single mutable global `state` object, a module-private `eyes[]` registry and
+a documented cross-engine namespace `VO`; the DOM is the second, redundant source of truth, and a
+sanitised snapshot in `localStorage` is the durable one. The pipeline is two GitHub Actions
+workflows: one uploads the repository root verbatim to Pages, one verifies the artifact.
 
 | Dimension | Reality in this repo |
 |---|---|
 | Runtime tiers | 1 (browser) |
 | Deployable artifacts | 1 (`index.html` + 2 PNGs) |
 | Build step | none |
-| Automated tests | none |
-| Persistence | none — in-memory only, lost on refresh |
+| Automated tests | `tests/smoke.mjs` — 53 jsdom assertions, no browser required |
+| Persistence | `localStorage` snapshot, sanitised on restore; falls back to the seeded board |
 | Auth | none in the app; only GitHub OIDC in CI |
-| External integrations | cdnjs (D3), Google Fonts |
+| External integrations | Google Fonts (optional; layout degrades gracefully) |
 
 ---
 
@@ -56,12 +57,15 @@ flowchart LR
   end
 
   subgraph Third["External third parties"]
-    CDNJS[["cdnjs.cloudflare.com<br/>d3.min.js 7.8.5"]]
     GFONTS[["fonts.googleapis.com + gstatic<br/>JetBrains Mono · Space Grotesk · Orbitron"]]
   end
 
+  subgraph Store["Origin-local durable state"]
+    LS[("localStorage<br/>void-oculus/session")]
+  end
+
   subgraph CI["Build and release plane"]
-    GHA["GitHub Actions<br/>.github/workflows/static.yml"]
+    GHA["GitHub Actions<br/>static.yml (deploy) · verify.yml (checks)"]
     REPO[("Git repository<br/>branch main")]
   end
 
@@ -74,8 +78,10 @@ flowchart LR
 
   User -->|"HTTPS GET /"| PAGES
   PAGES -->|"index.html + png"| Doc
-  Doc -->|"HTTPS GET blocking script"| CDNJS
   CSS -->|"HTTPS GET css2 @import"| GFONTS
+
+  S1 -->|"debounced snapshot"| LS
+  LS -->|"sanitizeHTML on restore"| S1
 
   REPO -->|"push to main / workflow_dispatch"| GHA
   GHA -->|"upload-pages-artifact v5 · deploy-pages v5"| PAGES
@@ -83,15 +89,16 @@ flowchart LR
   classDef ext fill:#1c1c1f,stroke:#ffaa00,color:#ffaa00
   classDef infra fill:#1c1c1f,stroke:#00ccff,color:#00ccff
   classDef code fill:#111113,stroke:#00ff9d,color:#00ff9d
-  class CDNJS,GFONTS ext
-  class PAGES,GHA,REPO infra
+  class GFONTS ext
+  class PAGES,GHA,REPO,LS infra
   class CSS,DOM,S1,S2,WEBAPI code
 ```
 
-> **Note on D3.js:** `d3.min.js` is loaded as a **render-blocking `<script>` in `<head>`** but
-> `grep -n "d3\." index.html` returns **only the script tag**. No D3 symbol is ever referenced.
-> The dependency is currently **dead weight and an unnecessary third-party trust relationship**
-> (see §15 and §17).
+> **Note on D3.js:** earlier revisions loaded `d3.min.js` as a render-blocking `<script>` in
+> `<head>` while never referencing a single D3 symbol. The tag has been **removed**; connectors,
+> the particle field and the minimap were always hand-written. A CI job in `ci/verify.yml` now
+> fails the build if any `<script src=…>` reappears, so the zero-dependency property is executable
+> rather than aspirational.
 
 ---
 
@@ -240,32 +247,31 @@ actually emits **15 distinct `data-type` values**; the minimap colour table
 ## 4. Service interaction — there is no backend
 
 **What it shows:** the complete inventory of network interactions. This diagram exists precisely to
-make the *absence* of a backend explicit and auditable: the only cross-origin traffic is one
-blocking script and a font stylesheet, both `GET`, both unauthenticated, both un-integrity-checked.
+make the *absence* of a backend explicit and auditable: the only cross-origin traffic is a font
+stylesheet and its binaries — `GET`, unauthenticated, and non-blocking for application logic.
 
 ```mermaid
 sequenceDiagram
   autonumber
   actor U as Operator browser
   participant GP as GitHub Pages CDN
-  participant CJ as cdnjs.cloudflare.com
   participant GF as fonts.googleapis.com
   participant GS as fonts.gstatic.com
+  participant LS as localStorage (same origin)
 
   U->>GP: GET / (index.html)
-  GP-->>U: 200 text/html — 122 KB, immutable
-  Note over U: HTML parser reaches head, line 7
-
-  U->>CJ: GET /ajax/libs/d3/7.8.5/d3.min.js
-  Note right of U: render-blocking, no integrity attribute, no crossorigin
-  CJ-->>U: 200 application/javascript (never referenced by app code)
+  GP-->>U: 200 text/html — 147 KB, immutable
+  Note over U: HTML parser reaches head — no external script to block on
 
   U->>GF: GET /css2?family=JetBrains+Mono|Space+Grotesk|Orbitron
   GF-->>U: 200 text/css with @font-face rules
   U->>GS: GET woff2 font binaries
   GS-->>U: 200 font/woff2
 
-  Note over U,GS: No XHR, fetch, WebSocket, cookie, storage or beacon exists anywhere in the codebase
+  U->>LS: getItem('void-oculus/session')
+  LS-->>U: snapshot or null — sanitised before it re-enters the DOM
+
+  Note over U,GS: No XHR, fetch, WebSocket, cookie or beacon exists anywhere in the codebase
   Note over U: All subsequent work is local: DOM, Canvas2D, SVG, requestAnimationFrame
 ```
 
@@ -283,9 +289,9 @@ data-flow characteristic of the system.
 ```mermaid
 flowchart LR
   subgraph In["Inputs"]
-    MS["mousedown / mousemove / mouseup"]
-    WH["wheel"]
-    KB["keydown / keyup<br/>Space · Escape · Delete · Backspace"]
+    MS["pointerdown / pointermove / pointerup / pointercancel<br/>mouse · pen · touch · 2-finger pinch"]
+    WH["wheel (incl. ctrl-modified trackpad pinch)"]
+    KB["keydown / keyup<br/>Space · Escape · Delete · Backspace · Ctrl-F<br/>suppressed inside text entry"]
     CTX["contextmenu"]
     CLK["toolbar and minimap clicks"]
     RS["window resize"]
@@ -370,8 +376,7 @@ sequenceDiagram
   participant D as DOM / CSSOM
   participant R as Render loop
 
-  P->>D: parse head, block on cdnjs d3.min.js
-  P->>D: apply style block, start Google Fonts fetch
+  P->>D: apply style block, start Google Fonts fetch (no blocking script)
   P->>D: build static skeleton (toolbar, minimap, overlays, canvas-wrapper)
   P->>A: execute Script A
   A->>A: define state literal, cache canvas / wrapper / connSvg / selBox
@@ -414,9 +419,10 @@ sequenceDiagram
 ## 7. Authentication and authorization
 
 **What it shows:** the application has **no authentication or authorization whatsoever** — no
-accounts, cookies, tokens, storage or `connect-src` traffic. The only real authorization boundary in
-the repository is the **GitHub Actions OIDC exchange** that lets CI publish to Pages. Both facts are
-drawn so a reviewer can confirm the negative.
+accounts, cookies, tokens or `connect-src` traffic. It does have one *data* trust boundary: the
+origin-local session snapshot, which is treated as untrusted input on the way back in. The only
+authorization boundary in the repository is the **GitHub Actions OIDC exchange** that lets CI
+publish to Pages.
 
 ```mermaid
 flowchart TB
@@ -424,7 +430,16 @@ flowchart TB
     direction LR
     ANON(["Any anonymous visitor"]) -->|"HTTPS GET, no credentials"| SITE["Static site"]
     SITE --> CAP["Full capability: every global function<br/>createCard, addConnection, deleteCard, setTool<br/>is callable from the devtools console"]
-    CAP --> LOCAL["Effect scope: this tab only<br/>no persistence, no other user is affected"]
+    CAP --> LOCAL["Effect scope: this origin only<br/>no other user is affected"]
+  end
+
+  subgraph Data["Data trust boundary — the only one at runtime"]
+    direction LR
+    LSIN[("localStorage<br/>void-oculus/session<br/>user-writable, therefore untrusted")]
+    SAN["sanitizeHTML()<br/>inert template parse<br/>56-tag allowlist<br/>attribute deny rules"]
+    DOMOK["innerHTML — safe by policy"]
+    LSIN -->|"restore"| SAN --> DOMOK
+    LSIN -.->|"never bypassed"| DOMOK
   end
 
   subgraph CI["The only authorization boundary that exists"]
@@ -445,9 +460,12 @@ flowchart TB
   class ANON,CAP,LOCAL none
 ```
 
-> **Explicitly absent (verified by grep):** `localStorage`, `sessionStorage`, `document.cookie`,
-> `fetch`, `XMLHttpRequest`, `WebSocket`, `navigator.credentials`, `crypto.subtle`.
-> Any future multi-user feature would need an entirely new tier — see §17.
+> **Explicitly absent (verified by grep):** `sessionStorage`, `document.cookie`, `fetch`,
+> `XMLHttpRequest`, `WebSocket`, `navigator.credentials`, `crypto.subtle`.
+> `localStorage` is present and deliberate: one key, same origin, never transmitted, and every byte
+> read back passes `sanitizeHTML()` before touching the DOM. The dashed edge above is the invariant
+> a reviewer should check on any new code path. Any multi-user feature would still need an entirely
+> new tier — see §17.
 
 ---
 
@@ -480,7 +498,10 @@ erDiagram
     boolean isPanning
     element dragCard
     object dragOffset "x, y in world units"
-    object panStart "UNDECLARED in literal, added on mousedown"
+    object panStart "UNDECLARED in literal, added on pointerdown"
+    boolean selectionAdditive "shift-marquee"
+    array dragGroup "rigid-body offsets for the rest of the selection"
+    number nextConnId "monotonic connection counter"
     element contextCard "holds a card id string, not an element"
     number nextId "auto-increment card counter"
     number mouseX "world coords"
@@ -579,11 +600,13 @@ classDiagram
     +zoom(factor, cx, cy) void
     +resetView() void
     +setTool(t) void
-    +createCard(type, x, y, content, extraClass) HTMLElement
+    +createCard(type, x, y, content, extraClass, opts) HTMLElement
     +setupCardInteraction(card) void
     +selectCard(card) void
     +clearSelected() void
     +deleteCard(id) void
+    +commitMarquee() void
+    +beginEdit(card, event) void
     +addConnection(from, to, color) void
     +getCardCenter(id) Point
     +renderConnectors() void
@@ -592,6 +615,14 @@ classDiagram
     +addStickyNote() void
     +addCodeBlock() void
     +addDefCard() void
+    +applySearch(query) number
+    +fitToMatches() void
+    +clearSearch() void
+    +sanitizeHTML(html) string
+    +saveSession() void
+    +scheduleSave(delay) void
+    +restoreSession() boolean
+    +resetBoard() void
     +showNotif(msg) void
     +updateMinimap() void
     +updateMinimapCards() void
@@ -642,29 +673,38 @@ classDiagram
     element.getBoundingClientRect()
   }
 
-  class D3 {
-    <<external, loaded, UNUSED>>
-    d3.* : never referenced
+  class WebStorage {
+    <<host environment>>
+    localStorage.getItem / setItem / removeItem
+    probed at boot; failure disables persistence
   }
 
   InlineMarkup ..> CanvasEngine : direct global calls
   InlineMarkup ..> OculusEngine : addEyeCard only
   OculusEngine ..> CanvasEngine : state, createCard, addConnection, showNotif, updateMinimapCards, canvas
+  CanvasEngine ..> OculusEngine : iris, scanEyes (restore path)
   CanvasEngine ..> BrowserAPI
   OculusEngine ..> BrowserAPI
-  CanvasEngine ..> D3 : no call sites
+  CanvasEngine ..> WebStorage : sanitised snapshots
 ```
 
-**Dead or unwired surface found while mapping the API**
+> **Cross-engine contract.** The two engines share exactly one mutable object, `window.VO`
+> (`restored`, `pendingEyes`, `reducedMotion`, `storage`, `booting`), plus three exported symbols
+> from the ocular engine: `addEyeCard` for the toolbar, and `iris` / `scanEyes` so the canvas engine
+> can rehydrate restored irises from their seeds and adopt the resulting subtrees into gaze
+> tracking. Everything else in Script B stays private to its IIFE.
 
-| Element | Evidence | Status |
+**Dead or unwired surface found while mapping the API** — and its current status
+
+| Element | Original finding | Status |
 |---|---|---|
-| `#search-input` | no listener anywhere in the file | **dead UI** |
-| `#tooltip` | element exists, never populated or shown | **dead UI** |
-| `.sticky` body text "double-click to edit..." | no `dblclick` handler exists | **misleading affordance** |
-| `d3.min.js` | zero call sites | **dead dependency** |
-| `targets` const in `buildOculus` optic-nerve block | assigned, never read | dead local |
-| `extraClass` param of `createCard` | accepted, never applied to the element | **silently ignored parameter** |
+| `#search-input` | no listener anywhere in the file | **resolved** — debounced filter, hit/dim states, counter, `Enter` to frame, `Ctrl`/`Cmd`-`F` |
+| `.sticky` body text "double-click to edit..." | no `dblclick` handler existed | **resolved** — `beginEdit()` over 14 scoped selectors |
+| `d3.min.js` | zero call sites | **resolved** — tag removed; CI fails the build if any external script returns |
+| `extraClass` param of `createCard` | accepted, never applied | **resolved** — applied to the card root |
+| 5 `<filter>` defs in `renderConnectors` | rebuilt per call, referenced by nothing | **resolved** — removed |
+| `#tooltip` | element exists, never populated or shown | **open** — still dead UI |
+| `targets` const in `buildOculus` optic-nerve block | assigned, never read | **open** — dead local |
 
 ---
 
@@ -706,19 +746,20 @@ flowchart TB
 
   subgraph Client["Client plane"]
     UB(["End user browser"])
-    CDN3[["cdnjs — D3"]]
     GFO[["Google Fonts"]]
+    LSTORE[("localStorage — origin-local session")]
   end
 
   BR --> PR --> MAIN
   DB --> PR
   MAIN -->|"on: push branches main"| ACT
+  PR -->|"on: pull_request — verify.yml<br/>smoke suite · parse check · dependency guard"| VER2["GitHub Actions — Verify"]
   ACT -->|"actions/checkout@v7"| ART
   ACT -->|"actions/configure-pages@v5<br/>upload-pages-artifact@v5"| ART
   ART -->|"actions/deploy-pages@v5"| PAGES
   PAGES -->|"static GET"| UB
-  UB --> CDN3
   UB --> GFO
+  UB <--> LSTORE
   PAGES -.->|"README-documented, no config committed"| Alt
 
   classDef unk fill:#2a1c00,stroke:#ffaa00,color:#ffaa00
@@ -730,8 +771,9 @@ flowchart TB
 1. Deployment is **whole-repository publication** — `path: '.'` means `README.md`,
    `SECURITY.md`, `.github/workflows/static.yml` and both 1.4 MB PNGs are all publicly fetchable at
    the site origin. Nothing secret exists in the repo today, so this is a hygiene issue, not a leak.
-2. Payload per cold visit ≈ **122 KB HTML** plus fonts plus an unused ~280 KB D3 bundle. The two
-   PNGs (3 MB combined) are only fetched by people reading the README on GitHub.
+2. Payload per cold visit ≈ **147 KB HTML** plus fonts. The previously bundled ~280 KB unused D3
+   download is gone. The two PNGs (3 MB combined) are only fetched by people reading the README on
+   GitHub.
 3. No cache-busting strategy exists; Pages serves `index.html` with short-lived caching by default
    **[inferred — not configured in the repo]**.
 4. Rollback = revert the commit and let the workflow re-run. There is no artifact retention policy
@@ -840,15 +882,15 @@ flowchart TB
   K --> M["Card, its connectors and its selection entry removed"]
   L --> N{"Save the work?"}
   M --> N
-  N -->|"no mechanism exists"| O["Refresh discards everything<br/>board regenerates from seed"]
+  N -->|"automatic, debounced"| O["localStorage snapshot<br/>restored on next load, sanitised"]
+  N -->|"⟲ RESET"| P["Snapshot discarded<br/>board regenerates from seed"]
 
-  classDef dead fill:#26060c,stroke:#cc2233,color:#ff2244
-  class O dead
+  classDef live fill:#04231a,stroke:#00ff9d,color:#00ff9d
+  class O live
 ```
 
-> The workflow is **read-mostly by construction**: cards created at runtime carry placeholder text
-> and cannot be edited (no `contenteditable`, no `dblclick`), and search is unwired. The product's
-> authoring loop is therefore *spatial* (place, move, link, delete) rather than *textual*.
+> The authoring loop is now both *spatial* (place, move, marquee, link, delete) and *textual*
+> (double-click to edit, search to find). Work survives a refresh; discarding it is an explicit act.
 
 ---
 
@@ -867,27 +909,36 @@ stateDiagram-v2
 
   state "Tool: SELECT" as Select {
     [*] --> Idle
-    Idle --> Marquee : wrapper mousedown on empty canvas<br/>selectionStart = world point
-    Marquee --> Idle : mouseup — selBox hidden<br/>NOTE: no hit test, marquee selects nothing
-    Idle --> Selected : card mousedown<br/>selectCard, shiftKey = additive
-    Selected --> Dragging : same mousedown sets isDragging + dragOffset
-    Dragging --> Selected : mouseup — dragging class removed, updateMinimap
-    Selected --> Idle : clearSelected via empty-canvas mousedown, DESELECT button or Escape
-    Dragging --> Dragging : mousemove — writes style.left/top + renderConnectors every frame
+    Idle --> Marquee : wrapper pointerdown on empty canvas<br/>selectionStart = world point, shift = additive
+    Marquee --> Selected : pointerup — commitMarquee() AABB test<br/>every intersecting card selected
+    Marquee --> Idle : pointerup under the 4px threshold — treated as a click
+    Idle --> Selected : card pointerdown<br/>selectCard, shiftKey = additive
+    Selected --> Dragging : same pointerdown sets isDragging, dragOffset and dragGroup
+    Selected --> Editing : dblclick on a text region<br/>beginEdit() sets contenteditable
+    Editing --> Selected : blur or Escape — commit, reflow connectors, scheduleSave
+    Dragging --> Selected : pointerup — dragging class cleared, updateMinimap, scheduleSave
+    Selected --> Idle : clearSelected via empty-canvas pointerdown, DESELECT button or Escape
+    Dragging --> Dragging : pointermove — writes style.left/top for the whole group + renderConnectors
   }
 
   state "Tool: PAN" as Pan {
     [*] --> PanIdle
-    PanIdle --> Panning : mousedown sets panStart = client - state offset
-    Panning --> PanIdle : mouseup — cursor back to grab
-    Panning --> Panning : mousemove — state.x/y then applyTransform
+    PanIdle --> Panning : pointerdown sets panStart = client - state offset<br/>also entered by middle button or single touch
+    Panning --> PanIdle : pointerup — cursor back to grab
+    Panning --> Panning : pointermove — state.x/y then applyTransform
+  }
+
+  state "Gesture: PINCH" as Pinch {
+    [*] --> Armed : second pointer down<br/>cancelTransientInteractions() abandons drag/pan/marquee
+    Armed --> Armed : pointermove — scale by distance ratio, pan by midpoint travel
+    Armed --> [*] : pointer count below 2, pointercancel, or window blur
   }
 
   state "Tool: CONNECT" as Connect {
     [*] --> AwaitSource
-    AwaitSource --> AwaitTarget : card mousedown<br/>connecting.from = id, notify SELECT TARGET NODE
+    AwaitSource --> AwaitTarget : card pointerdown<br/>connecting.from = id, notify SELECT TARGET NODE
     AwaitTarget --> AwaitSource : same card clicked — ignored
-    AwaitTarget --> LinkMade : different card mousedown<br/>addConnection then setTool('select')
+    AwaitTarget --> LinkMade : different card pointerdown<br/>addConnection then setTool('select')
     LinkMade --> [*] : notify LINK ESTABLISHED
   }
 
@@ -945,16 +996,16 @@ sequenceDiagram
   CE->>TB: toggle .active class, cursor = crosshair
   CE->>SVG: renderConnectors() — full rebuild
 
-  U->>CardA: mousedown
+  U->>CardA: pointerdown
   CardA->>CE: setupCardInteraction handler, stopPropagation
   CE->>SM: connecting = {active: true, from: 'card-A'}
   CE->>N: showNotif("SELECT TARGET NODE")
   N-->>U: toast, auto-removed after 3200 ms
 
-  U->>CardB: mousedown
+  U->>CardB: pointerdown
   CardB->>CE: handler sees connecting.active and different id
   CE->>CE: addConnection('card-A','card-B')
-  CE->>SM: connections.push({from, to, color: random of 5, id: 'conn-'+Date.now()})
+  CE->>SM: connections.push({from, to, color: random of 5, id: 'conn-' + nextConnId++})
   CE->>TB: stat-links textContent = connections.length
   CE->>CE: renderConnectors()
 
@@ -969,6 +1020,7 @@ sequenceDiagram
 
   CE->>SM: connecting = {active: false, from: null}
   CE->>CE: setTool('select') — which calls renderConnectors() a second time
+  CE->>CE: scheduleSave() — coalesced snapshot 600 ms after the board goes quiet
   CE->>N: showNotif("LINK ESTABLISHED")
   Note over CE,MM: next updateMinimap tick (<= 1 s, or immediately on any transform)<br/>redraws the link as a straight line in fovea space
   MM-->>U: link visible in minimap
@@ -976,14 +1028,17 @@ sequenceDiagram
 
 **What this sequence exposes**
 
-* `renderConnectors()` is **O(connections)** but rebuilds the *entire* SVG subtree — including
-  re-creating 5 `<filter>` defs — on every call, and it is called on **every `mousemove` during a
-  card drag**. With ~20 connections this is fine; it is the first thing that will break at scale.
-* The glow filters are created but **never referenced** by any path (`filter="url(#glow-N)"` never
-  appears) — the glow is faked with a wide translucent stroke instead. `ARCHITECTURE.md`'s previous
-  claim of `feGaussianBlur`-driven glow was aspirational.
+* `renderConnectors()` is **O(connections)** but rebuilds the *entire* SVG subtree on every call,
+  and it is called on **every `pointermove` during a card drag**. With ~30 connections this is fine;
+  it is still the first thing that will break at scale.
+* The five unreferenced `<filter>` defs that used to be re-created on every call have been
+  **removed**. Bloom was always drawn as a wide translucent underlay stroke; the filters were pure
+  overhead, and an offscreen blur pass per path would have been an order of magnitude worse at drag
+  frame rates.
 * Two `renderConnectors()` calls happen back to back (once from `addConnection`, once from
   `setTool('select')`).
+* Connection ids come from a monotonic counter rather than `Date.now()`, which could collide for
+  links created inside the same millisecond — reachable via the seeded board's bulk linking.
 
 ---
 
@@ -1000,7 +1055,6 @@ flowchart TB
 
   subgraph Z1["Zone 1 — Third-party origins, trusted implicitly"]
     direction LR
-    CDNJS["cdnjs.cloudflare.com<br/>script-src, FULL JS execution rights"]
     GAPI["fonts.googleapis.com<br/>style-src"]
     GSTA["fonts.gstatic.com<br/>font-src"]
   end
@@ -1009,10 +1063,13 @@ flowchart TB
     direction TB
     IDX["index.html served as-is<br/>no CSP meta tag present<br/>no X-Frame-Options controllable"]
     INLINE["inline script + inline style + inline onclick<br/>would require unsafe-inline in any CSP"]
-    HTMLSINK["innerHTML sinks: createCard, iris output,<br/>macro iris, ctxAction duplicate"]
-    SRCDATA["All content is author-authored literals<br/>no user text ever reaches a sink today"]
+    HTMLSINK["innerHTML sinks: createCard, iris output,<br/>macro iris, ctxAction duplicate, restoreSession"]
+    SRCDATA["Author-authored literals — trusted by construction"]
+    STORED["Restored snapshot — untrusted by policy"]
+    SANIT["sanitizeHTML(): inert template parse,<br/>56-tag allowlist, attribute deny rules"]
     IDX --> INLINE --> HTMLSINK
     SRCDATA --> HTMLSINK
+    STORED --> SANIT --> HTMLSINK
   end
 
   subgraph Z3["Zone 3 — Repository / CI, authenticated"]
@@ -1027,26 +1084,25 @@ flowchart TB
   end
 
   VISITOR -->|"HTTPS, no credentials, nothing to steal"| IDX
-  IDX -->|"BOUNDARY 1: unauthenticated remote code<br/>no integrity= no crossorigin= no fallback"| CDNJS
-  IDX -->|"BOUNDARY 2: remote CSS via @import"| GAPI
+  IDX -->|"BOUNDARY 1: remote CSS via @import"| GAPI
   GAPI --> GSTA
-  GHTOK -->|"BOUNDARY 3: publishes whole repo to public origin"| IDX
+  GHTOK -->|"BOUNDARY 2: publishes whole repo to public origin"| IDX
 
   classDef risk fill:#26060c,stroke:#cc2233,color:#ff2244
   classDef ok fill:#04231a,stroke:#00ff9d,color:#00ff9d
-  class CDNJS,GAPI,GSTA risk
-  class SRCDATA ok
+  class GAPI,GSTA risk
+  class SRCDATA,SANIT ok
 ```
 
 **Boundary-by-boundary finding**
 
 | # | Boundary | Current control | Residual risk |
 |---|---|---|---|
-| 1 | `cdnjs` → page | none — no SRI, no `crossorigin`, no local fallback | A compromised or hijacked CDN response executes with full page privileges. **The library is not even used**, so the risk is entirely gratuitous. `SECURITY.md` recommends SRI; the recommendation is not implemented in `index.html`. |
-| 2 | Google Fonts `@import` | none | Style-injection and a privacy/GDPR-relevant third-party request. Low severity. |
+| 1 | `cdnjs` → page | **eliminated** — the unused D3 tag is gone and a CI job fails the build if any `<script src=…>` returns | None. The gratuitous remote-code trust relationship no longer exists. |
+| 2 | Google Fonts `@import` | none | Style-injection and a privacy/GDPR-relevant third-party request. Low severity; vendoring the three families removes it entirely. |
 | 3 | CI → public origin | least-privilege `GITHUB_TOKEN`, OIDC deploy, pinned major-version actions, Dependabot upkeep | Good. Weakness: `path: '.'` publishes everything in the repo by default. |
-| 4 | `innerHTML` usage | none | Not currently exploitable — no untrusted input path exists. **Becomes a real XSS surface the moment editable cards, URL/query state, or import are added.** |
-| 5 | Client data | nothing stored | Strongest property of the design: no data at rest means no data to breach. |
+| 4 | `innerHTML` usage | `sanitizeHTML()` on the restore path; author literals elsewhere | Controlled. The standing invariant is that *every* future inbound path — import, paste, drag-and-drop, URL fragment — routes through the sanitiser. Nine assertions in `tests/smoke.mjs` pin the policy, including that sanitisation itself executes nothing. |
+| 5 | Client data at rest | one `localStorage` key, same origin, never transmitted, erasable via `⟲ RESET` | Low. The data is the user's own board; the risk it introduces is the untrusted-input path in row 4, which is now mitigated. |
 
 ---
 
@@ -1058,9 +1114,10 @@ behaviours present in the code; dashed red boxes are unhandled paths.
 ```mermaid
 flowchart TB
   subgraph Ext["External failure modes"]
-    F1{"cdnjs unreachable<br/>or blocked"}
     F2{"Google Fonts unreachable"}
     F3{"Pages deploy fails"}
+    F11{"localStorage blocked<br/>or over quota"}
+    F12{"Stored snapshot corrupt<br/>or from an unknown schema"}
   end
 
   subgraph Int["Internal failure modes — guards found in code"]
@@ -1072,9 +1129,6 @@ flowchart TB
     F9{"O(n^2) particle loop at high n"}
     F10{"renderConnectors called every drag frame"}
   end
-
-  F1 -->|"script tag is not async/defer"| R1["Parser blocks until timeout,<br/>then app still boots — d3 is unused"]
-  R1 -.->|"UNHANDLED: no onerror, no local copy"| X1["Slow first paint on flaky networks"]
 
   F2 --> R2["CSS @import fails silently<br/>font-family falls back to monospace / sans-serif"]
   R2 --> OK2["Degrades gracefully"]
@@ -1094,19 +1148,29 @@ flowchart TB
   F7 --> G7["if (ec) guard before getContext"]
   G7 --> OK7["Handled"]
 
-  F8 -.->|"deleteCard never prunes eyes[]"| X8["Dangling record iterated forever<br/>slow memory and CPU leak"]
-  F9 -.->|"fixed 120 particles, no adaptive cap"| X9["7140 distance checks per frame,<br/>independent of device class"]
-  F10 -.->|"no rAF batching or debounce"| X10["Full SVG subtree rebuild per mousemove"]
+  F8 --> G8["pruneDetachedEyes() in the gaze loop<br/>drops records whose card is !isConnected, ~every 2 s"]
+  G8 --> OK8["Handled — registry and EYES counter both settle"]
+
+  F11 --> G11["localStorage probed at boot (VO.storage)<br/>write failure disables persistence and notifies once"]
+  G11 --> OK11["Handled — board stays fully usable in memory"]
+
+  F12 --> G12["schema-version check, then all-or-nothing restore<br/>partial board torn down, snapshot dropped"]
+  G12 --> OK12["Handled — falls back to the deterministic seeded board"]
+
+  F9 -.->|"fixed 120 particles, no adaptive cap"| X9["7140 distance checks per frame,<br/>independent of device class<br/>(loop halts entirely under reduced motion)"]
+  F10 -.->|"no rAF batching or debounce"| X10["Full SVG subtree rebuild per pointermove"]
 
   classDef bad fill:#26060c,stroke:#cc2233,color:#ff2244,stroke-dasharray: 4 3
   classDef good fill:#04231a,stroke:#00ff9d,color:#00ff9d
-  class X1,X8,X9,X10 bad
-  class OK2,OK3,OK4,OK5,OK6,OK7 good
+  class X9,X10 bad
+  class OK2,OK3,OK4,OK5,OK6,OK7,OK8,OK11,OK12 good
 ```
 
-> There is **no error boundary of any kind** — no `try/catch`, no `window.onerror`, no telemetry.
-> An exception thrown inside `gazeLoop` silently kills the rAF chain and freezes every eye and the
-> macro-iris dilation while the rest of the UI keeps working. That partial-failure mode would be
+> **Error boundaries are still narrow.** `try/catch` now guards the three places where failure is
+> expected rather than exceptional — the storage probe, snapshot serialisation, and session restore
+> — and each has a defined fallback. There is still no `window.onerror` and no telemetry: an
+> exception thrown inside `gazeLoop` would silently kill the rAF chain and freeze every eye and the
+> macro-iris dilation while the rest of the UI keeps working. That partial-failure mode remains
 > invisible to both user and maintainer.
 
 ---
@@ -1118,11 +1182,12 @@ flowchart TB
 | Layer | Location | Responsibility | Depends on |
 |---|---|---|---|
 | **Design-token layer** | `:root` in the style block | Single source of colour, typography, elevation. Referenced by both CSS rules and JS (`var(--phosphor)` inside generated markup). | nothing |
-| **Presentation layer** | 176 CSS rules, 13 `@keyframes` | All static appearance and all ambient animation (scan line, marquee, shimmer, iris breathing, boot open). Deliberately keeps animation *off* the JS thread. | tokens |
-| **Document skeleton** | body markup, lines 1000–1085 | Declares the fixed chrome (toolbar, status bar, minimap, context menu, overlays) and the world container. Binds UI to logic via inline `onclick`. | Canvas Engine globals |
-| **Canvas Engine (Script A)** | lines 1086–2322 | The application core: state, coordinate transform, card CRUD, connection model, pointer/keyboard/wheel event handling, context menu, minimap, particle field, and the seeded board (`buildCanvas`, 7 zones). | DOM, Web APIs |
-| **Oculus Engine (Script B)** | lines 2323–3196 | The identity of the product: deterministic procedural iris generation, the gaze registry and tracking loop, blink scheduling, the 4900 px macro iris, 42 ambient watchers, 5 further content zones, gaze cursor, boot iris. | *reaches into* Canvas Engine globals |
-| **Hosting/CI layer** | `.github/workflows/static.yml` | Copies the repo to Pages. No transformation of any kind. | GitHub |
+| **Presentation layer** | ~190 CSS rules, 13 `@keyframes`, responsive + reduced-motion blocks | All static appearance and all ambient animation (scan line, marquee, shimmer, iris breathing, boot open). Deliberately keeps animation *off* the JS thread, and stops it entirely when the OS asks. | tokens |
+| **Document skeleton** | body markup, lines 1060–1149 | Declares the fixed chrome (toolbar, status bar, minimap, context menu, overlays) and the world container. Binds UI to logic via inline `onclick`. | Canvas Engine globals |
+| **Canvas Engine (Script A)** | lines 1149–3054 | The application core: state, coordinate transform, card CRUD, connection model, pointer/keyboard/wheel handling, marquee, in-place editing, search, context menu, minimap, particle field, session persistence and sanitisation, and the seeded board (`buildCanvas`, 7 zones). | DOM, Web APIs, Web Storage |
+| **Oculus Engine (Script B)** | lines 3055–3977 | The identity of the product: deterministic procedural iris generation, the gaze registry, tracking loop and detached-record pruning, blink scheduling, the 4900 px macro iris, 42 ambient watchers, 5 further content zones, gaze cursor, boot iris, and iris rehydration for restored boards. | *reaches into* Canvas Engine globals via `VO` |
+| **Test layer** | `tests/smoke.mjs` | 54 jsdom assertions over construction, search, marquee, group drag, editing, registry hygiene, sanitisation and persistence. Test-only dependency, installed on demand. | jsdom |
+| **Hosting/CI layer** | `.github/workflows/static.yml`, `ci/verify.yml` | Copies the repo to Pages, with no transformation; verification runs the suite, parses both inline scripts, and guards the zero-dependency invariant. | GitHub |
 
 ### 17.2 Primary control and data flows
 
@@ -1139,9 +1204,10 @@ authoritative store for geometry.
 1. **The world/viewport transform.** Three lines of arithmetic
    (`w = (client - rect - state.pan) / state.scale`) repeated at seven call sites. It is the load-bearing
    abstraction of the whole app and it is *not* factored into a function — see technical debt.
-2. **`createCard(type, x, y, content)`.** The single constructor for all 15 card variants; type is a
-   `data-attribute`, content is an HTML string. Extremely cheap to add a card variant, impossible to
-   add card *behaviour* without special-casing.
+2. **`createCard(type, x, y, content, extraClass, opts)`.** The single constructor for all 15 card
+   variants; type is a `data-attribute`, content is an HTML string. Extremely cheap to add a card
+   variant, impossible to add card *behaviour* without special-casing. `opts` exists solely so the
+   restore path can reuse persisted ids and layers without a second constructor.
 3. **`iris(opt)`.** A pure, deterministic, seeded SVG-string generator. Given `{size, pal, seed,
    pupil, fibers, veins, drift}` it returns self-contained markup with namespaced gradient ids
    (`ocuN-i`, `ocuN-p`, `ocuN-s`, `ocuN-c`). Every eye in the product — card eyes, 42 background
@@ -1149,7 +1215,11 @@ authoritative store for geometry.
    abstraction in the repository.
 4. **The `eyes[]` gaze registry.** Decouples *how eyes are created* from *how they are animated*:
    `scanEyes(root)` finds any unregistered `svg.eye-svg`, marks it `data-reg=1`, measures its offset
-   inside its owning card once, and hands it to a single shared loop. Idempotent by construction.
+   inside its owning card once, and hands it to a single shared loop. Idempotent by construction,
+   and self-cleaning — `pruneDetachedEyes()` drops records whose card has left the document.
+6. **`sanitizeHTML(html)`.** The single gate between stored bytes and the DOM. Like `iris()` it is
+   pure input→string, and it is the reason persistence could be added without widening the XSS
+   surface.
 5. **`state.scale` as a UX signal.** Zoom is not merely a viewport property; `ocularTick` maps it to
    macro-pupil radius, eyelid height and the DILATION readout. Navigation *is* the narrative.
 
@@ -1167,18 +1237,21 @@ authoritative store for geometry.
 
 ### 17.5 External integrations
 
-Two, both unauthenticated GETs: **cdnjs** (D3 7.8.5, loaded, never called) and **Google Fonts**
-(three families via `@import`). No analytics, no telemetry, no error reporting, no APIs.
+One, an unauthenticated GET: **Google Fonts** (three families via `@import`). The unused cdnjs D3
+script has been removed and CI now fails on any `<script src=…>`. No analytics, no telemetry, no
+error reporting, no APIs. The only durable state is a same-origin `localStorage` key.
 
 ### 17.6 Operational assumptions
 
-* Desktop, mouse-driven, single user, single tab, modern evergreen browser. (`@media (max-width:
-  768px)` hides labels and the search bar, but there is **no touch/pointer event handling at all** —
-  the canvas is unusable on touch devices despite the responsive CSS.)
-* Board content is authored **in source** (`buildCanvas`/`buildOculus`), not by users. Runtime
-  authoring is a demonstration, not a workflow.
-* Session-scoped by design: refresh is the reset button.
-* Deployment is instantaneous and atomic; no migrations, no config, no secrets.
+* Single user, single tab, modern evergreen browser. Input is now Pointer Events throughout, so
+  mouse, pen and touch share one path; two-finger pinch and single-finger pan make the canvas usable
+  on tablets, which the responsive CSS previously promised without delivering.
+* Board content ships **in source** (`buildCanvas`/`buildOculus`) as a seeded starting point, but is
+  now genuinely user-editable: create, move, marquee, link, edit text, delete — all persisted.
+* Origin-scoped by design: the session lives in `localStorage`, and `⟲ RESET` is the reset button.
+  Two tabs on the same origin will overwrite each other's snapshots.
+* Deployment is instantaneous and atomic; no migrations, no config, no secrets. Snapshot schema
+  changes are handled by bumping `SCHEMA_VERSION`, which discards rather than migrates.
 
 ### 17.7 Likely scalability constraints
 
@@ -1187,9 +1260,10 @@ Two, both unauthenticated GETs: **cdnjs** (D3 7.8.5, loaded, never called) and *
 | Connector re-render on every drag frame | full SVG teardown + rebuild, `getElementById` ×2 per link | degrades noticeably in the low hundreds of links |
 | Particle proximity graph | O(n²) — 120 particles = 7 140 checks/frame, hard-coded | fixed cost; the constant, not the growth, is the problem on low-end GPUs |
 | Minimap refresh | full redraw + `getElementById` per card, 1 Hz plus every transform | linear in card count; fine at 62, wasteful at 1 000 |
-| Gaze loop | viewport-culled at ±400 world px, half-rate — the best-optimised loop | scales well; leaks on deleted eyes |
+| Gaze loop | viewport-culled at ±400 world px, half-rate, with a 2 s prune pass — the best-optimised loop | scales well; no longer leaks on deleted eyes |
 | DOM card count | every card is a live DOM subtree with SVG children; no virtualisation or occlusion culling | thousands of cards will exhaust layout, not JS |
-| Single-file delivery | 122 KB uncompressed HTML, no code splitting | fine today; every new zone grows the critical path |
+| Single-file delivery | 147 KB uncompressed HTML, no code splitting | fine today; every new zone grows the critical path |
+| Session snapshot | one synchronous `JSON.stringify` per quiet period; irises stored as seeds | ~100 KB at 85 cards, so comfortably inside the 5 MB origin quota; a board an order of magnitude larger would want IndexedDB |
 | Concurrency | none — one user, no shared state | **N/A** |
 
 ### 17.8 Notable architectural strengths
@@ -1209,46 +1283,54 @@ Two, both unauthenticated GETs: **cdnjs** (D3 7.8.5, loaded, never called) and *
 
 ### 17.9 Technical debt and ambiguity
 
-**Correctness**
+**Resolved since this review was written**
 
-1. `deleteCard()` does not prune `eyes[]` → dangling records animated forever.
-2. `ctxAction('duplicate')` clones `innerHTML` including iris SVG but never calls `scanEyes`, so
-   duplicated eyes are inert; it also duplicates SVG gradient **ids**, producing document-wide id
-   collisions.
-3. The marquee (`selection-box`) is drawn but **no hit-testing is ever performed** — dragging a
-   selection rectangle selects nothing. `README.md` advertises this as a feature.
-4. `conn-' + Date.now()` ids collide within the same millisecond.
-5. `createCard`'s `extraClass` parameter is accepted and silently discarded.
-6. Middle-click panning bypasses `state.tool`, leaving the cursor state inconsistent on release.
-7. `filter id="glow-N"` defs are generated on every `renderConnectors()` call and referenced by
-   nothing.
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | `deleteCard()` never pruned `eyes[]` → dangling records animated forever | `pruneDetachedEyes()` runs in the gaze loop every ~2 s, keyed on `isConnected`; asserted in the suite |
+| 2 | `ctxAction('duplicate')` produced inert eyes | The clone's stale `data-reg` is cleared and `scanEyes()` re-adopts it. **The duplicated gradient-id collision remains open** — see below |
+| 3 | Marquee drawn but never hit-tested | `commitMarquee()` performs an AABB test on `pointerup`; Shift is additive, sub-4px is a click |
+| 4 | `'conn-' + Date.now()` ids collide within a millisecond | Monotonic `state.nextConnId` counter |
+| 5 | `extraClass` accepted and silently discarded | Applied to the card root |
+| 7 | Unreferenced `filter id="glow-N"` defs rebuilt every render | Removed |
+| 13 | Unused, un-integrity-checked, render-blocking `d3.min.js` | Tag deleted; a CI job fails the build if any external script returns |
+
+**Correctness — still open**
+
+1. Duplicating a card that contains an iris copies its SVG gradient **ids**, producing document-wide
+   id collisions. Harmless today because each gradient is visually identical, but it is a latent
+   rendering bug the moment two eyes with the same id differ.
+2. Middle-click panning bypasses `state.tool`, leaving the cursor state inconsistent on release.
+3. `state.panStart` is created ad hoc, absent from both the state literal and the JSDoc typedef.
 
 **Structure**
 
-8. The viewport→world transform is duplicated at seven call sites instead of being one function.
-9. Two sources of truth for geometry (`state.cards[].x/y` vs `style.left/top`), with the DOM winning.
-10. Cross-script coupling through globals; nothing is testable in isolation.
-11. `buildCanvas()` is a ~560-line literal-markup function; `buildOculus()` is ~460. Content and
-    engine are interleaved, so adding content means editing the engine file.
-12. No `try/catch`, no `window.onerror` — a single throw silently kills a rAF loop.
+4. The viewport→world transform is duplicated at several call sites instead of being one function.
+5. Two sources of truth for geometry (`state.cards[].x/y` vs `style.left/top`), with the DOM winning.
+6. Cross-script coupling through globals. Now *documented* rather than implicit — `VO` plus three
+   named exports — but Script B still cannot be loaded independently.
+7. `buildCanvas()` is a ~560-line literal-markup function; `buildOculus()` is ~460. Content and
+   engine are interleaved, so adding content means editing the engine file.
+8. `try/catch` covers the storage paths only; there is still no `window.onerror`, so a throw inside
+   a rAF loop dies silently.
 
 **Supply chain**
 
-13. An unused, un-integrity-checked, render-blocking third-party script (`d3.min.js`).
-14. `SECURITY.md` documents an SRI procedure and a CSP that are not applied to `index.html`.
+9. `SECURITY.md` documents a CSP that is not applied to `index.html`; the fonts are still remote.
 
-**Documentation drift (found while writing this file)**
+**Documentation drift (found while writing this file)** — every row has since been corrected in the
+document named, and the underlying code claim is now true or the claim was removed.
 
-| Claim | Where | Reality |
+| Claim | Where | Reality at the time |
 |---|---|---|
 | "D3.js force simulation for ambient particles" | README, old ARCHITECTURE | Hand-written integrator in `animParticles()`; D3 never called |
 | "D3.js-rendered bezier paths" / "`d3.line()` cardinal interpolation" | README | Manual `createElementNS` + string-built cubic bezier |
 | "Cards use `will-change: transform`" | README, old ARCHITECTURE | `will-change` appears once, on `.eye-svg .eye-globe/.pupil-grp`, never on `.card` |
-| "Connector redraws debounced on pan/zoom end" | README, old ARCHITECTURE | Re-rendered on **every** drag `mousemove` |
+| "Connector redraws debounced on pan/zoom end" | README, old ARCHITECTURE | Re-rendered on **every** drag frame — still true, now documented as a known hot path |
 | `state = { links: [], selected: [], pan: {x,y}, zoom: 1 }` | README | Actual keys are `connections`, `selectedCards` (a `Set`), `x`, `y`, `scale` |
-| "Off-screen eyes skip render" | old ARCHITECTURE | True — the one performance claim that holds |
+| "Off-screen eyes skip render" | old ARCHITECTURE | True — the one performance claim that held |
 | Four card types | README | 15 distinct `data-type` values are emitted |
-| "Keyboard shortcuts are planned for a future release" | README | Space / Escape / Delete / Backspace are already implemented |
+| "Keyboard shortcuts are planned for a future release" | README | Space / Escape / Delete / Backspace were already implemented |
 | `addStickyNote(x, y)` takes coordinates | API.md | Takes no parameters; position is viewport-origin + random offset |
 | SVG `feGaussianBlur` glow | old ARCHITECTURE | Filters defined but unreferenced; glow is a wide translucent stroke |
 
@@ -1260,22 +1342,25 @@ Two, both unauthenticated GETs: **cdnjs** (D3 7.8.5, loaded, never called) and *
   **[unknown]**; no configuration for any of them is committed.
 * `CHANGELOG.md` claims a `1.0.0` release dated `2024-XX-XX`; there are no git tags and no release —
   the version line is **[inferred, unverified]**.
-* `#tooltip` and `#search-input` exist with no logic: unfinished features or intentional scaffolding
-  — **[unknown]**.
+* `#tooltip` still exists with no logic — unfinished feature or intentional scaffolding
+  — **[unknown]**. (`#search-input` is now wired.)
 
 ### 17.10 Proposed next architectural moves (not present in the repository)
 
-These are **[proposed]** only, listed so a new engineer knows what the shape of change would be:
+**Done since this review was written** — 2 (D3 tag deleted, trust zone removed), 4 (`eyes[]` pruned
+on detachment, duplicated cards re-scanned) and 6 (persistence, shaped exactly as the §8 entity
+model predicted, with a sanitiser on the inbound edge).
 
-1. Extract the viewport↔world transform into `toWorld()` / `toScreen()` helpers — removes seven
-   duplications and makes the coordinate system testable.
-2. Either delete the D3 `<script>` tag (it is unused) or vendor it locally with SRI. Deleting it
-   removes a whole trust zone and speeds up first paint.
-3. Make `state` the single source of geometry; have renderers read `state.cards`, and write to the
-   DOM only in `applyTransform`-style sinks.
-4. Prune `eyes[]` inside `deleteCard`, and re-run `scanEyes` on duplicated cards.
-5. Batch `renderConnectors()` behind `requestAnimationFrame` — the one change with the largest
-   perceived-performance payoff.
-6. If persistence is ever wanted, the natural first step is serialising `{cards, connections, x, y,
-   scale}` to `localStorage` or a JSON export; the entity model in §8 is already the schema.
-```
+**Still [proposed]**, listed so a new engineer knows the shape of change:
+
+1. Extract the viewport↔world transform into `toWorld()` / `toScreen()` helpers — removes the
+   duplications and makes the coordinate system testable in isolation.
+2. Make `state` the single source of geometry; have renderers read `state.cards`, and write to the
+   DOM only in `applyTransform`-style sinks. This is the prerequisite for everything below it.
+3. Batch `renderConnectors()` behind `requestAnimationFrame`, then move to incremental updates keyed
+   by card id — the change with the largest perceived-performance payoff.
+4. Namespace generated SVG gradient ids per card instance so duplication cannot collide.
+5. Promote card content from sanitised markup to a typed content tree, which is what would make
+   charts and timelines editable as data and undo/redo tractable.
+6. Split the seeded board (`buildCanvas` / `buildOculus`) out of the engines into a data module, so
+   content can change without touching engine code.

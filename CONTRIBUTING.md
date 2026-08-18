@@ -61,7 +61,9 @@ Feature requests are welcome. Please:
 - Maintain the **single-file architecture** — all HTML, CSS, and JavaScript remain in `index.html` for easy distribution
 - Use **semantic HTML5** elements where appropriate
 - Follow **CSS custom properties** (variables) for theming
-- Avoid external dependencies beyond D3.js and Google Fonts
+- **Add no runtime dependencies.** `index.html` must load no external scripts; CI enforces this. Google Fonts is the only third-party origin, and the layout degrades gracefully without it
+- Run `npm install --no-save jsdom@25 && node tests/smoke.mjs` before opening a PR, and extend the suite when you add behaviour that can be asserted without layout
+- Route any markup arriving from outside the repository through `sanitizeHTML()`
 
 ### JavaScript
 
