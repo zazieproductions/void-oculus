@@ -141,6 +141,13 @@ Then visit [http://localhost:8000](http://localhost:8000).
 
 ## Technical Architecture
 
+> **See [`ARCHITECTURE.md`](ARCHITECTURE.md)** for the full visual design review: 17 Mermaid
+> schematics (system context, module dependency map, component hierarchy, data flow, boot/request
+> lifecycle, state machine, entity model, trust zones, CI topology, failure modes) plus a written
+> architecture narrative. That document is generated from the source and supersedes any summary
+> below where the two disagree — it includes a documentation-drift table listing the known
+> discrepancies in this README.
+
 ### Rendering Pipeline
 
 ```
